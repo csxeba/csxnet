@@ -1,0 +1,5 @@
+# PyCharm IDE thingy
+.idea/
+__pycache__/
+*.py[cod]
+*$py.class
