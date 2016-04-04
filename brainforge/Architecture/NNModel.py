@@ -202,13 +202,14 @@ class Network:
             return questions
 
     def _revaluate(self, preds, on):
-        m = self.data.n_testing
-        ideps = {"d": self.data.indeps, "l": self.data.lindeps, "t": self.data.tindeps}[on[0]][:m]
-        return np.average(np.sqrt((preds - ideps)**2))
+        d = self.data
+        m = d.n_testing
+        ideps = {"d": d.indeps, "l": d.lindeps, "t": d.tindeps}[on[0]][:m]
+        return np.mean(np.sqrt((d.upscale(preds) - d.upscale(ideps))**2))
 
     def _cevaluate(self, preds, on):
         ideps = self.data.dummycode(on)
-        return np.average(np.equal(ideps, preds))
+        return np.mean(np.equal(ideps, preds))
 
     def evaluate(self, on="testing"):
         """

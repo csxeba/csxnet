@@ -31,11 +31,6 @@ class _Data:
         self._datacopy = data
         self.n_testing = int(len(data) * (1 - cross_val))
 
-        if pca:
-            self.do_pca(pca)
-
-        self.split_data()
-
     def table(self, data):
         """Returns a learning table"""
         dat = {"l": self.learning,
@@ -78,11 +73,9 @@ class _Data:
             self.pca.fit(self.data)
 
         self.data = self.pca.transform(self.data)
-        self.split_data()
 
     def restore(self):
         self.data = self._datacopy
-        self.split_data()
 
     def split_data(self):
         dat, ind = shuffle((self.data, self.indeps))
@@ -103,6 +96,10 @@ class CData(_Data):
 
     def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0):
         _Data.__init__(self, source, cross_val, 1, header, sep, end, pca)
+
+        if pca:
+            self.do_pca(pca)
+        self.split_data()
 
         # In categorical myData, there is only 1 independent categorical variable
         # which is stored in a 1-tuple or 1 long vector. We free it from its misery
@@ -142,6 +139,14 @@ class CData(_Data):
 
         return datum, adep
 
+    def do_pca(self, no_factors):
+        _Data.do_pca(self, no_factors)
+        self.split_data()
+
+    def restore(self):
+        _Data.restore(self)
+        self.split_data()
+
     def translate(self, output):
         """Translates a Brain's output to a human-readable answer"""
         output = output.ravel().tolist()
@@ -160,28 +165,41 @@ class CData(_Data):
 
 
 class RData(_Data):
+    """
+    Class for holding regression learning myData. The myData is read from the
+    supplied source .csv semicolon-separated file. The file should contain
+    a table of numbers with headers for columns.
+    The elements must be of type integer or float.
+    """
+
     def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
-        """
-        Class for holding regression learning myData. The myData is read from the
-        supplied source .csv semicolon-separated file. The file should contain
-        a table of numbers with headers for columns.
-        The elements must be of type integer or float.
-        """
         _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
         self.type = "regression"
         self._downscaled = False
         self._indep_scaling_factors = np.max(self.indeps, axis=0) * 2
-
-    def upscale(self, A):
-        return A * self._indep_scaling_factors
+        if pca:
+            self.do_pca(pca)
+        self.split_data()
 
     def split_data(self):
         if not self._downscaled:
             self.indeps /= self._indep_scaling_factors
+            self._downscaled = True
         _Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
         self.lindeps = self.lindeps.astype(REAL)
         self.tindeps = self.tindeps.astype(REAL)
+
+    def do_pca(self, no_factors):
+        _Data.do_pca(self, no_factors)
+        self.split_data()
+
+    def restore(self):
+        _Data.restore(self)
+        self.split_data()
+
+    def upscale(self, A):
+        return A * self._indep_scaling_factors
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
