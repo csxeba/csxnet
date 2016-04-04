@@ -201,6 +201,15 @@ class Network:
         else:
             return questions
 
+    def _revaluate(self, preds, on):
+        m = self.data.n_testing
+        ideps = {"d": self.data.indeps, "l": self.data.lindeps, "t": self.data.tindeps}[on[0]][:m]
+        return np.average(np.sqrt((preds - ideps)**2))
+
+    def _cevaluate(self, preds, on):
+        ideps = self.data.dummycode(on)
+        return np.average(np.equal(ideps, preds))
+
     def evaluate(self, on="testing"):
         """
         Calculates the network's prediction accuracy.
@@ -208,11 +217,11 @@ class Network:
         :param on: cross-validation is implemented, dataset can be chosen here
         :return: rate of right answers
         """
-        m = len(self.data.testing)
+        evalfn = self._revaluate if self.data.type == "regression" else self._cevaluate
+        m = self.data.n_testing
         questions = {"d": self.data.data[:m], "l": self.data.learning[:m], "t": self.data.testing}[on[0]]
-        targets = self.data.dummycode(on)
-        answers = self.predict(questions)
-        return np.sum(np.equal(targets, answers)) / targets.shape[0]
+        result = evalfn(self.predict(questions), on)
+        return result
 
     # ---- Private helper methods ----
 

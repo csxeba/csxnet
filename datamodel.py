@@ -43,7 +43,7 @@ class _Data:
                "d": self.data}[data[0]]
         ind = {"l": self.lindeps,
                "t": self.tindeps,
-               "d": self.data}[data[0]]
+               "d": self.indeps}[data[0]]
 
         # I wasn't sure if the order gets messed up or not, but it seems it isn't
         # Might be wise to implement thisas a test method, because shuffling
@@ -158,17 +158,6 @@ class CData(_Data):
          to process this myData.."""
         return self.data[0].shape, len(self.categories)
 
-    def test(self, brain, data="testing"):
-        """Test a brain against the myData.
-        Returns the rate of rights answers"""
-        print("Warning! CData.test() is OBSOLETE!")
-        ttable = self.table(data)
-        thoughts = brain.think(ttable[0])
-        answers = [self.translate(thought) for thought in thoughts]
-        targets = [self.translate(target) for target in ttable[1]]
-        results = [int(x == y) for x, y in zip(answers, targets)]
-        return sum(results) / len(results)
-
 
 class RData(_Data):
     def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
@@ -180,9 +169,15 @@ class RData(_Data):
         """
         _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
         self.type = "regression"
+        self._downscaled = False
+        self._indep_scaling_factors = np.max(self.indeps, axis=0) * 2
+
+    def upscale(self, A):
+        return A * self._indep_scaling_factors
 
     def split_data(self):
-        self.indeps /= np.max(self.indeps, axis=0) * 2
+        if not self._downscaled:
+            self.indeps /= self._indep_scaling_factors
         _Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
         self.lindeps = self.lindeps.astype(REAL)
@@ -191,19 +186,9 @@ class RData(_Data):
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
 
-    def test(self, brain, data="testing", queue=None):
-        ttable = self.table(data)
-        thoughts = brain.think(ttable[0])
-
-        assert ttable[1].shape == thoughts.shape, "Targets' shape differ from brain output!"
-
-        if not queue:
-            return np.average(np.sqrt(np.square(ttable[1] - thoughts)))
-        queue.put(brain)
-
 
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
-    file = open(source, encoding='utf8')  # open mind! :D
+    file = open(source, encoding='utf8')
     text = file.read()
     text.replace(",", ".")
     file.close()
@@ -273,5 +258,4 @@ def shuffle(learning_table: tuple):
     """Shuffles and recreates the learning table"""
     indices = np.arange(learning_table[0].shape[0])
     np.random.shuffle(indices)
-    half = len(indices) // 2
     return learning_table[0][indices], learning_table[1][indices]

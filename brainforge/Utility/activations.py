@@ -1,7 +1,5 @@
 import numpy as np
-import warnings
 
-warnings.filterwarnings('error')
 
 class _ActivationFunctionBase:
     def __call__(self, Z: np.ndarray): pass
