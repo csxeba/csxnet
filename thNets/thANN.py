@@ -3,7 +3,7 @@ import numpy as np
 import theano
 import theano.tensor as T
 import theano.tensor.nnet as nnet
-from theano.tensor.signal.pool import pool_2d
+from theano.tensor.signal.downsample import max_pool_2d
 
 theano.config.exception_verbosity = "high"
 
@@ -33,7 +33,7 @@ class ConvNet:
 
         cact = nnet.sigmoid(nnet.conv2d(inputs, cfilter))
         pact = T.reshape(
-            pool_2d(cact, ds=(pool, pool), ignore_border=True),
+            max_pool_2d(cact, ds=(pool, pool), ignore_border=True),
             # newshape=(m, nfilters * transd_pl[0] * transd_pl[1]))
             newshape=(m, 784))
         fcact = nnet.sigmoid(pact.dot(hfcw))
@@ -65,3 +65,8 @@ class ConvNet:
         cost, pred = self._predict(dat, idp, m)
         acc = np.mean(np.equal(self.data.dummycode(on), pred))
         return cost, acc
+
+
+class FCNet:
+    def __init__(self):
+        print("Coming soon")

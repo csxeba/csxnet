@@ -5,7 +5,7 @@ from scipy.ndimage import convolve
 
 from ..Layerdef._LayerBase import _VecLayer, _FCLayer
 from ..Utility.activations import Linear
-from ..Utility.operations import maxpool# , convolve
+from ..Utility.operations import maxpool
 from ..Utility.utility import ravel_to_matrix as ravtm, l2term
 
 
@@ -107,9 +107,7 @@ class ConvLayer(_VecLayer):
 
         self.inputs = np.zeros(self.inshape)
         self.outshape = num_filters, self.outshape[0], self.outshape[1]
-        self.filters = np.random.randn(num_filters, np.prod(fshape))
-        np.divide(np.sqrt(self.filters.size), self.filters, out=self.filters)
-        # self.filters = np.zeros((num_filters, np.prod(fshape))) + 0.1
+        self.filters = np.random.randn(num_filters, np.prod(fshape)) / np.sqrt(np.prod(inshape))
         print("<ConvLayer> created with inshape {} and outshape {} @ position {}"
               .format(self.inshape, self.outshape, position))
 
@@ -245,9 +243,9 @@ class FFLayer(_FCLayer):
                           neurons=neurons, position=position,
                           activation=activation)
 
-        self.weights = np.divide(np.random.randn(inputs, neurons), np.sqrt(inputs))
+        self.weights = np.random.randn(inputs, neurons) / np.sqrt(inputs)
         self.inputs = None
-        self.N = 0  # current batch size, should equal self.inputs.shape[0]
+        self.N = 0  # current batch size
         # print("<FF", self.activation, "layer> created with input size {} and output size {} @ position {}"
         #       .format(inputs, neurons, position))
 
@@ -331,6 +329,9 @@ class DropOut(FFLayer):
     #     posh = [self.error.shape[0]] + list(prev.outshape)
     #     deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
     #     return deltas * prev.activation.derivative(prev.excitation)
+
+    def predict(self, question):
+        return self.activation(np.dot(ravtm(question), self.weights * self.dropchance))
 
 
 class InputLayer(_FCLayer):

@@ -1,6 +1,5 @@
 import numpy as np
 
-
 YAY = 1.0
 NAY = 0.0
 REAL = np.float64
@@ -8,6 +7,7 @@ REAL = np.float64
 
 class _Data:
     """Base class for Data Wrappers"""
+
     def __init__(self, source, cross_val, indeps_n, header, sep, end, pca):
         self.learning = None
         self.testing = None
@@ -176,14 +176,21 @@ class RData(_Data):
         _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
         self.type = "regression"
         self._downscaled = False
-        self._indep_scaling_factors = np.max(self.indeps, axis=0) * 2
+
+        # Calculate the scaling factors for the target values and store them as
+        # (a, b). Every target value is scaled by ax + b.
+        # Minimum is set to 0.2
+        # Maximum is set to 0.8
+        self._indep_scaling_factors = None
         if pca:
             self.do_pca(pca)
         self.split_data()
 
     def split_data(self):
         if not self._downscaled:
-            self.indeps /= self._indep_scaling_factors
+            from .nputils import featscale
+            self.indeps, self._indep_scaling_factors = \
+                featscale(self.indeps, frm=0.1, to=0.9, axis=0, factors=True)
             self._downscaled = True
         _Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
@@ -199,7 +206,8 @@ class RData(_Data):
         self.split_data()
 
     def upscale(self, A):
-        return A * self._indep_scaling_factors
+        from csxnet.nputils import featscale
+        return featscale(A, self._indep_scaling_factors[0], self._indep_scaling_factors[1], 0, 0)
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]

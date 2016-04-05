@@ -73,34 +73,21 @@ class Network:
 
         self.age += 1
 
-    def autoencode(self, batches: int, batch_size: int):
+    def autoencode(self, batch_size: int):
         """
         Coordinates the autoencoding of the myData
 
-        :param batches: the number of batches to autoencode
         :param batch_size: the size of said batches
         :return None
         """
         if not self.finalized:
             raise RuntimeError("Architecture not finalized!")
-
-        print("---  Starting  autoencoding  ---")
-        print("On {} datapoints".format(batch_size))
-
         if self.layers[-1] is not self.encoder:
             self._insert_encoder()
-
-        questions = self.data.learning[:batches*batch_size]
-        targets = rtm(questions)
-        self.N = questions.shape[0]
-        self.m = batch_size
-
-        for no in range(batches):
-            self._fit((questions[no*batch_size:(no*batch_size)+batch_size],
-                       targets[no*batch_size:(no*batch_size)+batch_size]))
-            # print("Autoencoding: batch {} done! Cost' = {}".format(no+1, self.error))
-
-        print("---  Finished  autoencoding  ---")
+        self.N = self.data.N
+        for batch in self.data.batchgen(batch_size):
+            self.m = batch[0].shape[0]
+            self._fit((batch[0], ravtm(batch[0])))
 
     def new_autoencode(self, batches: int, batch_size: int):
 
@@ -169,7 +156,7 @@ class Network:
         for layer in self.layers:
             questions = layer.feedforward(questions)
         # Calculate the cost derivative
-        last = self.predictor
+        last = self.layers[-1]
         last.error = self.cost.derivative(last.output, targets, last.excitation, last.activation)
         # Backpropagate the errors
         for layer in self.layers[-1:1:-1]:
