@@ -62,7 +62,7 @@ def test_thCNN():
 
 
 if __name__ == '__main__':
-    test_ANN()
+    test_thCNN()
     logfl = open("log.txt", "w")
     logfl.write(log)
     logfl.close()

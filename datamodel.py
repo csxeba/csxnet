@@ -29,7 +29,7 @@ class _Data:
         self.headers = headers
         self.data, self.indeps = data, indeps
         self._datacopy = data
-        self.n_testing = int(len(data) * (1 - cross_val))
+        self.n_testing = int(data.shape[0] * cross_val)
 
     def table(self, data):
         """Returns a learning table"""
@@ -79,10 +79,10 @@ class _Data:
 
     def split_data(self):
         dat, ind = shuffle((self.data, self.indeps))
-        self.learning = dat[:self.n_testing]
-        self.lindeps = ind[:self.n_testing]
-        self.testing = dat[self.n_testing:]
-        self.tindeps = ind[self.n_testing:]
+        self.learning = dat[self.n_testing:]
+        self.lindeps = ind[self.n_testing:]
+        self.testing = dat[:self.n_testing]
+        self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
 
 
