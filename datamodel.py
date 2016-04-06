@@ -123,10 +123,14 @@ class CData(_Data):
         targets += NAY
         np.fill_diagonal(targets, YAY)
 
-        # A dictionary is created, which associates the category names to the target
-        # arrays representing them.
-        self.dictionary = {category: target for category, target in
-                           zip(self.categories, targets)}
+        self._dictionary = {}
+        self._dummycodes = {}
+
+        for category, target in zip(self.categories, targets):
+            self._dictionary[category] = target
+            self._dummycodes[category] = self.categories.index(category)
+            self._dummycodes[self.categories.index(category)] = category
+
         self.type = "classification"
 
     def table(self, data="learning", shuff=True):
@@ -135,7 +139,7 @@ class CData(_Data):
             datum, indep = shuffle(_Data.table(self, data))
         else:
             datum, indep = _Data.table(self, data)
-        adep = np.array([self.dictionary[de] for de in indep])
+        adep = np.array([self._dictionary[de] for de in indep])
 
         return datum, adep
 
@@ -147,16 +151,19 @@ class CData(_Data):
         _Data.restore(self)
         self.split_data()
 
-    def translate(self, output):
-        """Translates a Brain's output to a human-readable answer"""
-        output = output.ravel().tolist()
-        answer = output.index(max(output))
-        return self.categories[answer]
+    def translate(self, preds, dummy=False):
+        """Translates a Brain's predictions to a human-readable answer"""
+
+        if not dummy:
+            out = np.array([self.categories[pred] for pred in preds])
+        else:
+            out = np.array([self._dummycodes[pred] for pred in preds])
+        return out
 
     def dummycode(self, data="testing"):
         d = {"t": self.tindeps, "l": self.lindeps, "d": self.indeps
              }[data[0]][:len(self.tindeps)]
-        return np.array([self.categories.index(x) for x in d])
+        return np.array([self._dummycodes[x] for x in d])
 
     def neurons_required(self):
         """Returns the required number of input and output neurons

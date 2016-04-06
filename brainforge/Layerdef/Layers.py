@@ -244,6 +244,7 @@ class FFLayer(_FCLayer):
                           activation=activation)
 
         self.weights = np.random.randn(inputs, neurons) / np.sqrt(inputs)
+        self.biases = np.zeros((1, neurons), dtype=float)
         self.inputs = None
         self.N = 0  # current batch size
         # print("<FF", self.activation, "layer> created with input size {} and output size {} @ position {}"
@@ -257,7 +258,7 @@ class FFLayer(_FCLayer):
         :return: numpy.ndarray: transformed matrix
         """
         self.inputs = ravtm(questions)
-        self.excitation = np.dot(self.inputs, self.weights)
+        self.excitation = np.dot(self.inputs, self.weights) + self.biases
         self.output = self.activation(self.excitation)
         return self.output
 
@@ -273,7 +274,7 @@ class FFLayer(_FCLayer):
         :param questions:
         :return:
         """
-        return self.activation(np.dot(ravtm(questions), self.weights))
+        return self.activation(np.dot(ravtm(questions), self.weights) + self.biases)
 
     def backpropagation(self):
         """
@@ -297,6 +298,7 @@ class FFLayer(_FCLayer):
         np.subtract(self.weights * l2,
                     np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
                     out=self.weights)
+        np.subtract(self.biases, self.error)
 
     def receive_error(self, error):
         """
