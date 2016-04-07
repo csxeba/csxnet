@@ -191,7 +191,7 @@ class RData(_Data):
         self._indep_scaling_factors = None
         if pca:
             self.do_pca(pca)
-        self.indeps = np.atleast_2d(self.indeps).T
+        self.indeps = np.atleast_2d(self.indeps)
         self.split_data()
 
     def split_data(self):
