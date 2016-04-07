@@ -298,7 +298,7 @@ class FFLayer(_FCLayer):
         np.subtract(self.weights * l2,
                     np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
                     out=self.weights)
-        np.subtract(self.biases, self.error)
+        np.subtract(self.biases, np.mean(self.error, axis=0), out=self.biases)
 
     def receive_error(self, error):
         """
