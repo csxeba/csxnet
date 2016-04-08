@@ -318,19 +318,19 @@ class DropOut(FFLayer):
         FFLayer.__init__(self, brain, inputs, neurons, position, activation)
 
         self.dropchance = dropout
+        self.mask = np.random.binomial(n=1.0, p=self.dropchance, size=self.neurons)
 
     def feedforward(self, questions):
         self.inputs = ravtm(questions)
-        self.excitation = np.dot(self.inputs, self.weights) * \
-                          np.random.binomial(n=1.0, p=self.dropchance, size=self.neurons)
+        self.excitation = np.dot(self.inputs, self.weights * self.mask)
         self.output = self.activation(self.excitation)
         return self.output
 
-    # def backpropagation(self):
-    #     prev = self.brain.layers[self.position-1]
-    #     posh = [self.error.shape[0]] + list(prev.outshape)
-    #     deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
-    #     return deltas * prev.activation.derivative(prev.excitation)
+    def backpropagation(self):
+        prev = self.brain.layers[self.position-1]
+        posh = [self.error.shape[0]] + list(prev.outshape)
+        deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
+        return deltas * prev.activation.derivative(prev.excitation)
 
     def predict(self, question):
         return self.activation(np.dot(ravtm(question), self.weights * self.dropchance))

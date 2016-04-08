@@ -39,7 +39,9 @@ class ConvNet:
         fcact = nnet.sigmoid(pact.dot(hfcw))
         outact = nnet.softmax(fcact.dot(outw))
 
-        cost = T.nnet.categorical_crossentropy(outact, targets).sum()
+        # Sqared error cost
+        cost = (0.5 * (targets - outact) ** 2).sum()
+        # cost = nnet.categorical_crossentropy(outact, targets)
 
         prediction = T.argmax(outact, axis=1)
 
@@ -50,9 +52,11 @@ class ConvNet:
         self._train = theano.function(inputs=[inputs, targets, m],
                                       updates=[(cfilter, update_cfilter),
                                                (hfcw, update_hfcw),
-                                               (outw, update_outw)])
+                                               (outw, update_outw)],
+                                      name="_train")
         self._predict = theano.function(inputs=[inputs, targets, m],
-                                        outputs=[cost, prediction])
+                                        outputs=[cost, prediction],
+                                        name="_predict")
 
     def learn(self, batch_size):
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
@@ -60,10 +64,11 @@ class ConvNet:
             self._train(questions, targets, m)
 
     def evaluate(self, on="testing"):
-        dat, idp = self.data.table(on, shuff=False)
-        m = dat.shape[0]
-        cost, pred = self._predict(dat, idp, m)
-        acc = np.mean(np.equal(self.data.dummycode(on), pred))
+        m = self.data.n_testing
+        tab = self.data.table(on)
+        qst, idp = tab[0][:m], tab[1][:m]
+        cost, pred = self._predict(qst, idp, m)
+        acc = np.mean(np.equal(np.argmax(idp, axis=1), pred))
         return cost, acc
 
 

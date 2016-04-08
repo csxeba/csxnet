@@ -74,6 +74,11 @@ class _Data:
 
         self.data = self.pca.transform(self.data)
 
+    def standardize(self):
+        self.data -= np.mean(self.data, axis=0)
+        self.data /= np.std(self.data, axis=0)
+        self.split_data()
+
     def restore(self):
         self.data = self._datacopy
 
