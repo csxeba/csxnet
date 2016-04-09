@@ -11,6 +11,8 @@ theano.config.exception_verbosity = "high"
 class ConvNet:
     def __init__(self, data, eta, lmbd, nfilters=1, cfshape=(5, 5), pool=2, hidden_fc=120):
         self.data = data
+        self.eta = eta
+        eta = T.scalar(dtype="float64")
         sliceshape = data.learning[0].shape
         cfiltershape = (nfilters, sliceshape[0], cfshape[0], cfshape[1])
         outputs = len(data.categories)
@@ -49,7 +51,7 @@ class ConvNet:
         update_hfcw = l2term * hfcw - (eta / m) * T.grad(cost, hfcw)
         update_outw = l2term * outw - (eta / m) * T.grad(cost, outw)
 
-        self._train = theano.function(inputs=[inputs, targets, m],
+        self._train = theano.function(inputs=[inputs, targets, eta, m],
                                       updates=[(cfilter, update_cfilter),
                                                (hfcw, update_hfcw),
                                                (outw, update_outw)],
@@ -61,7 +63,7 @@ class ConvNet:
     def learn(self, batch_size):
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
             m = questions.shape[0]
-            self._train(questions, targets, m)
+            self._train(questions, targets, self.eta, m)
 
     def evaluate(self, on="testing"):
         m = self.data.n_testing
