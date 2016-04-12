@@ -298,7 +298,8 @@ class FFLayer(_FCLayer):
         np.subtract(self.weights * l2,
                     np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
                     out=self.weights)
-        np.subtract(self.biases, np.mean(self.error, axis=0), out=self.biases)
+        np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
+                    out=self.biases)
 
     def receive_error(self, error):
         """
@@ -318,22 +319,16 @@ class DropOut(FFLayer):
         FFLayer.__init__(self, brain, inputs, neurons, position, activation)
 
         self.dropchance = dropout
-        self.mask = np.random.binomial(n=1.0, p=self.dropchance, size=self.neurons)
 
     def feedforward(self, questions):
         self.inputs = ravtm(questions)
-        self.excitation = np.dot(self.inputs, self.weights * self.mask)
+        self.excitation = np.dot(self.inputs, self.weights *
+                                 np.random.rand(*self.weights.shape) < self.dropchance)
         self.output = self.activation(self.excitation)
         return self.output
 
-    def backpropagation(self):
-        prev = self.brain.layers[self.position-1]
-        posh = [self.error.shape[0]] + list(prev.outshape)
-        deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
-        return deltas * prev.activation.derivative(prev.excitation)
-
     def predict(self, question):
-        return self.activation(np.dot(ravtm(question), self.weights * self.dropchance))
+        return FFLayer.predict(self, question) * self.dropchance
 
 
 class InputLayer(_FCLayer):
