@@ -42,7 +42,7 @@ class ConvNet:
         outact = nnet.softmax(fcact.dot(outw))
 
         # Sqared error cost
-        cost = (0.5 * (targets - outact) ** 2).sum()
+        cost = ((targets - outact) ** 2).sum()
         # cost = nnet.categorical_crossentropy(outact, targets)
 
         prediction = T.argmax(outact, axis=1)
