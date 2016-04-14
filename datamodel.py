@@ -28,7 +28,7 @@ class _Data:
 
         self.headers = headers
         self.data, self.indeps = data, indeps
-        self._datacopy = data
+        self._datacopy = np.copy(data)
         self.n_testing = int(data.shape[0] * cross_val)
 
     def table(self, data):
@@ -75,8 +75,8 @@ class _Data:
         self.data = self.pca.transform(self.data)
 
     def standardize(self):
-        self.data -= np.mean(self.data, axis=0)
-        self.data /= np.std(self.data, axis=0)
+        self.data = self._datacopy - np.mean(self._datacopy, axis=0)
+        self.data = self._datacopy / np.std(self._datacopy, axis=0)
         self.split_data()
 
     def restore(self):
@@ -106,7 +106,7 @@ class CData(_Data):
             self.do_pca(pca)
         self.split_data()
 
-        # In categorical myData, there is only 1 independent categorical variable
+        # In categorical data, there is only 1 independent categorical variable
         # which is stored in a 1-tuple or 1 long vector. We free it from its misery
         if isinstance(self.indeps[0], tuple) or isinstance(self.indeps[0], np.ndarray):
             self.indeps = np.array([d[0] for d in self.indeps])
@@ -186,13 +186,14 @@ class RData(_Data):
 
     def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
         _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
+
+        self._indepscopy = np.copy(np.atleast_2d(self.indeps))
+
         self.type = "regression"
         self._downscaled = False
 
         # Calculate the scaling factors for the target values and store them as
         # (a, b). Every target value is scaled by ax + b.
-        # Minimum is set to 0.2
-        # Maximum is set to 0.8
         self._indep_scaling_factors = None
         if pca:
             self.do_pca(pca)
@@ -202,8 +203,9 @@ class RData(_Data):
     def split_data(self):
         if not self._downscaled:
             from .nputils import featscale
-            self.indeps, self._indep_scaling_factors = \
-                featscale(self.indeps, frm=0.1, to=0.9, axis=0, factors=True)
+            self.indeps, dfctr, ufctr = \
+                featscale(self.indeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
+            self._indep_scaling_factors = dfctr, ufctr
             self._downscaled = True
         _Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
@@ -219,8 +221,9 @@ class RData(_Data):
         self.split_data()
 
     def upscale(self, A):
-        from csxnet.nputils import featscale
-        return featscale(A, self._indep_scaling_factors[0], self._indep_scaling_factors[1], 0, 0)
+        from .nputils import featscale
+        dfctr, ufctr = self._indep_scaling_factors
+        return featscale(A, axis=0, dfctr=ufctr, ufctr=dfctr)
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
