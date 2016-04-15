@@ -47,7 +47,6 @@ def test_thCNN():
     # lt = (lt[0]/255, lt[1])
     data = CData(datapath+"learning_tables/mnist.pkl.gz")
     # myData = CData(lt)
-    osh = data.data.shape
     # myData.myData = myData.myData.reshape(osh[0], 1, osh[1], osh[2])
     # myData.split_data()
     network = ConvNet(data, eta=0.15, lmbd=0.0)

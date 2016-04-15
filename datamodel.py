@@ -194,7 +194,9 @@ class RData(_Data):
 
         # Calculate the scaling factors for the target values and store them as
         # (a, b). Every target value is scaled by ax + b.
-        self._indep_scaling_factors = None
+        self._oldfctrs = None
+        self._newfctrs = None
+
         if pca:
             self.do_pca(pca)
         self.indeps = np.atleast_2d(self.indeps)
@@ -203,9 +205,8 @@ class RData(_Data):
     def split_data(self):
         if not self._downscaled:
             from .nputils import featscale
-            self.indeps, dfctr, ufctr = \
+            self.indeps, self._oldfctrs, self._newfctrs = \
                 featscale(self.indeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
-            self._indep_scaling_factors = dfctr, ufctr
             self._downscaled = True
         _Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
@@ -222,8 +223,7 @@ class RData(_Data):
 
     def upscale(self, A):
         from .nputils import featscale
-        dfctr, ufctr = self._indep_scaling_factors
-        return featscale(A, axis=0, dfctr=ufctr, ufctr=dfctr)
+        return featscale(A, axis=0, dfctr=self._newfctrs, ufctr=self._oldfctrs)
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]

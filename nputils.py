@@ -5,14 +5,15 @@ def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
     if dfctr is None:
         dfctr = (X.min(axis=axis), X.max(axis=axis))
     frm, to = ufctr
-    X -= dfctr[0]
-    X /= dfctr[1] - dfctr[0]
-    X *= (to - frm)
-    X += frm
+    output = X - dfctr[0]
+    output /= dfctr[1] - dfctr[0]
+    output *= (to - frm)
+    output += frm
+
     if not getfctrs:
-        return X
+        return output
     else:
-        return X, dfctr, (frm, to)
+        return output, dfctr, ufctr
 
 
 def euclidean(itr: np.ndarray, target: np.ndarray):
