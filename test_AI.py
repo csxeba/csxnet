@@ -45,7 +45,9 @@ def test_ANN():
 def test_thCNN():
     # lt = unpickle_gzip(datapath+"learning_tables/mnist.pkl.gz")
     # lt = (lt[0]/255, lt[1])
-    data = CData(datapath+"learning_tables/mnist.pkl.gz")
+    from datamodel import mnist_to_lt
+    lt = mnist_to_lt(datapath+"learning_tables/mnist.pkl.gz")
+    data = CData(lt, cross_val=0.2)
     # myData = CData(lt)
     # myData.myData = myData.myData.reshape(osh[0], 1, osh[1], osh[2])
     # myData.split_data()

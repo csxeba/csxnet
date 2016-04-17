@@ -287,12 +287,14 @@ def unpickle_gzip(source: str, coding='latin1'):
     return tup
 
 
-def mnist_to_lt(source: str):
+def mnist_to_lt(source: str, reshape=True):
     """The reason of this method's existance is that I'm lazy as ..."""
     tup = unpickle_gzip(source, coding="latin1")
     questions = np.concatenate((tup[0][0], tup[1][0], tup[2][0]))
     questions = questions.astype(REAL, copy=False)
     targets = np.concatenate((tup[0][1], tup[1][1], tup[2][1]))
+    if reshape:
+        questions = questions.reshape((questions.shape[0], 1, 28, 28))
     return questions, targets
 
 
