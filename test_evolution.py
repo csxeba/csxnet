@@ -14,10 +14,10 @@ def test_evolution():
 
     limit = 100
     survivors = 0.4
-    crossing_over_rate = 0.1
-    mutation_rate = 0.1
+    crossing_over_rate = 0.2
+    mutation_rate = 0.01
     max_offsprings = 3
-    epochs = 100
+    epochs = 10000
     verbose = 0
     fitness = fn2
     genome_len = 5
@@ -42,6 +42,4 @@ if __name__ == '__main__':
     start = time.time()
     test_evolution()
     print("Time elapsed: {} s".format(round(time.time()-start, 2)))
-    print("Observation: fitness update is somehow buggy!")
-    # TODO: fix above problem in evolution
 

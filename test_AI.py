@@ -1,6 +1,6 @@
 import sys
 
-from datamodel import CData
+from datamodel import CData, mnist_to_lt
 from brainforge.Architecture.NNModel import Network
 from brainforge.Utility.cost import Xent
 from brainforge.Utility.activations import Linear, Sigmoid, ReL
@@ -13,13 +13,13 @@ log = ""
 
 def test_ANN():
     pca = 0
-    data = CData(datapath + "learning_tables/mnist.pkl.gz",
+    data = CData(mnist_to_lt(datapath+"mnist.pkl.gz"),
                  cross_val=0.1, pca=pca)
 
     def get_FFNN():
         nw = Network(data, 2.0, 0.0, cost=Xent)
-        # nw.add_fc(120, activation=Sigmoid)
-        nw.add_drop(120, dropchance=0.5, activation=Sigmoid)
+        nw.add_fc(120, activation=Sigmoid)
+        # nw.add_drop(120, dropchance=0.5, activation=Sigmoid)
         nw.finalize_architecture(activation=Sigmoid)
         return nw
 
@@ -35,7 +35,7 @@ def test_ANN():
 
     for epoch in range(epochs):
         net.learn(10)
-        ont, onl = net.evaluate(), net.evaluate(("learning"))
+        ont, onl = net.evaluate(), net.evaluate("learning")
         print("Epoch {} Cost': {}".format(epoch+1, net.error))
         print("Acc: T: {} L: {}".format(ont, onl))
         global log
@@ -63,7 +63,7 @@ def test_thCNN():
 
 
 if __name__ == '__main__':
-    test_thCNN()
+    test_ANN()
     logfl = open("log.txt", "w")
     logfl.write(log)
     logfl.close()

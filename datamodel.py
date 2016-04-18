@@ -2,7 +2,7 @@ import numpy as np
 
 YAY = 0.8
 NAY = 0.2
-REAL = np.float64
+REAL = np.float32
 
 
 class _Data:
@@ -28,7 +28,7 @@ class _Data:
 
         self.headers = headers
         self.data, self.indeps = data, indeps
-        self._datacopy = np.copy(data)
+        # self._datacopy = np.copy(data)
         self.n_testing = int(data.shape[0] * cross_val)
 
     def table(self, data):

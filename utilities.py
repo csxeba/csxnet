@@ -29,8 +29,9 @@ def choose(iterable):
 def feature_scale(iterable, from_=0, to=1):
     """Scales the elements of a vector between from_ and to"""
     if max(iterable) + min(iterable) == 0:
-        print("Every value is 0 in iterable, returning zeros!")
-        return type(iterable)([0 for _ in range(len(iterable))])
+        print("Feature scale warning: every value is 0 in iterable!")
+        return type(iterable)([from_ for _ in range(len(iterable))])
+
     out = []
     for e in iterable:
         try:

@@ -44,6 +44,8 @@ class Population:
                             range(random.randrange(int(limit / 2), limit))]
 
         self.update(self.parallel)
+        assert None not in [ind.fitness for ind in self.individuals]
+        self.sanity_check()
 
     def update(self, parallel):
         if parallel:
@@ -120,6 +122,8 @@ class Population:
     def mutation(self):
         """Generate mutations in the given population. Rate is given by <pop.mutation_rate>"""
 
+        mutations = 0
+
         # All the loci in the population
         size = len(self.individuals)  # The number of individuals
         loci = len(self.individuals[0].genome)  # The number of loci in a single individual
@@ -128,12 +132,21 @@ class Population:
         # The chance of mutation_rate is applied to loci and not individuals!
         for i in range(all_loci):
             roll = random.random()
-            if roll < self.mutation_rate:
-                ind = self.individuals[i // loci]
+            if roll < (self.mutation_rate / loci):
+                no_ind = i // loci
                 m_loc = i % loci
-                ind.genome[m_loc] = random_locus(self, m_loc)
-                ind.fitness = None
-                ind.mutant += 1
+
+                # OK, like, WTF???
+                newgenome = list(self.individuals[no_ind].genome)  # the genome gets copied
+                newgenome[m_loc] = random_locus(self, m_loc)
+                self.individuals[no_ind].genome = newgenome
+                # Above snippet is a workaround, because the following won't work:
+                # self.individuals[i // loci].genome[m_loc] = random_locus(self, m_loc)
+                # It somehow alters the selected individual's genome, but fails to reset
+                # its fitness to None. Something earie is going on here...
+                self.individuals[no_ind].fitness = None
+                self.individuals[no_ind].mutant += 1
+                mutations += 1
 
     def run(self, epochs, verbose, log=False, parallel=None):
         """Runs a given number of epochs: a selection followed by a reproduction"""
@@ -142,26 +155,16 @@ class Population:
             parallel = self.parallel
 
         start = time.time()
-        # These are used to hold some descriptors to analyze the run
         grades = []
-        bests = []
         epoch = 0
         for epoch in range(1, epochs + 1):
 
-            self.sanity_check()
             self.selection()
-            self.sanity_check()
             self.reproduction()
-            self.sanity_check()
             self.mutation()
-            self.sanity_check()
+            # self.sanity_check()
             self.update(parallel)
-            self.sanity_check()
-
-            # log some descriptors (100 values each)
-            if epoch % (epochs // 100) == 0:
-                grades.append(self.grade())
-                bests.append(best(self))
+            # self.sanity_check()
 
             while len(self.individuals) < 4:
                 if len(self.individuals) < 2:
@@ -187,7 +190,7 @@ class Population:
 
         # return the logs
         if log:
-            return grades, bests
+            return grades
 
         return self
 
@@ -196,10 +199,12 @@ class Population:
         return avg([ind.fitness for ind in self.individuals])
 
     def sanity_check(self):
+        wrongies = []
         for ind in self.individuals:
             if ind.fitness != sum(ind.genome) and ind.fitness is not None:
                 print("Wrong fitness value for individual!")
-        pass
+                wrongies.append(ind)
+        return wrongies
 
 
 class Individual:
@@ -207,9 +212,6 @@ class Individual:
         self.genome = genome
         self.fitness = None
         self.mutant = 0
-
-    def __str__(self):
-        return "i" + str(self.genome) + "\tf: " + str(round(self.fitness, 4))
 
 
 def mate(ind1, ind2, co_chance, max_offsprings):
@@ -258,7 +260,7 @@ def random_locus(pop, locus):
 
 
 def mutants(pop):
-    holder = [int(ind.mutant) for ind in pop.individuals]
+    holder = [ind.mutant > 0 for ind in pop.individuals]
     return sum(holder) / len(holder)
 
 
@@ -276,19 +278,11 @@ def gene_pool(pop):
     return set(holder)
 
 
-def topn(pop, n):
-    return pop.individuals[:n]
-
-
-def best(pop):
-    return round(topn(pop, 1)[0].fitness, 2)
-
-
 def describe(pop, show=0):
     """Print out useful information about a population"""
     showme = sorted(pop.individuals, key=lambda i: i.fitness)[:show]
     print("------------------------")
     for ind in showme:
-        print(ind)
+        print("Ind:", str(ind.genome), str(ind.fitness))
     print("Size:\t", len(pop.individuals), sep="\t")
     print("Avg fitness:", pop.grade(), sep="\t")
