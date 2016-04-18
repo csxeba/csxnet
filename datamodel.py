@@ -2,7 +2,7 @@ import numpy as np
 
 YAY = 0.8
 NAY = 0.2
-REAL = np.float32
+REAL = np.float64
 
 
 class _Data:

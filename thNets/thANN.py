@@ -37,8 +37,8 @@ class ConvNet:
         cfilter = theano.shared(np.random.randn(*cfiltershape) /
                                 np.sqrt(np.prod(cfanin)), name="ConvFilters")
         cbiases = theano.shared(np.zeros((nfilters,)), name="ConvBiases")
-        hfcw = theano.shared(np.random.randn(np.prod(nfilters*np.prod(fcfanin)), hidden_fc) /
-                             np.sqrt(np.prod(fcfanin)), name="HiddenFCweights")
+        hfcw = theano.shared(np.random.randn(fcfanin, hidden_fc) /
+                             np.sqrt(fcfanin), name="HiddenFCweights")
         hfcb = theano.shared(np.zeros((hidden_fc,)), name="HiddenFCbiases")
         outw = theano.shared(np.random.randn(hidden_fc, outputs) /
                              np.sqrt(hidden_fc), name="OutputFCweights")

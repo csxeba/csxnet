@@ -7,7 +7,7 @@ from brainforge.Utility.activations import Linear, Sigmoid, Tanh
 from thNets.thANN import ConvNet
 
 
-datapath = "D:/Data/" if sys.platform == 'win32' else "/data/Prog/data/"
+datapath = "D:/Data/" if sys.platform == 'win32' else "/data/Prog/data/learning_tables/"
 log = ""
 
 
@@ -18,8 +18,8 @@ def test_ANN():
 
     def get_FFNN():
         nw = Network(data, 0.5, 0.0, cost=Xent)
-        # nw.add_fc(30, activation=Sigmoid)
-        nw.add_drop(30, dropchance=0.5, activation=Tanh)
+        nw.add_fc(30, activation=Sigmoid)
+        # nw.add_drop(30, dropchance=0.5, activation=Tanh)
         nw.finalize_architecture(activation=Sigmoid)
         return nw
 
