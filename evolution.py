@@ -44,8 +44,6 @@ class Population:
                             range(random.randrange(int(limit / 2), limit))]
 
         self.update(self.parallel)
-        assert None not in [ind.fitness for ind in self.individuals]
-        self.sanity_check()
 
     def update(self, parallel):
         if parallel:
@@ -162,9 +160,7 @@ class Population:
             self.selection()
             self.reproduction()
             self.mutation()
-            # self.sanity_check()
             self.update(parallel)
-            # self.sanity_check()
 
             while len(self.individuals) < 4:
                 if len(self.individuals) < 2:
@@ -197,14 +193,6 @@ class Population:
     def grade(self):
         """Calculates an average fitness value for the whole population"""
         return avg([ind.fitness for ind in self.individuals])
-
-    def sanity_check(self):
-        wrongies = []
-        for ind in self.individuals:
-            if ind.fitness != sum(ind.genome) and ind.fitness is not None:
-                print("Wrong fitness value for individual!")
-                wrongies.append(ind)
-        return wrongies
 
 
 class Individual:

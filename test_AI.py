@@ -2,8 +2,8 @@ import sys
 
 from datamodel import CData, mnist_to_lt
 from brainforge.Architecture.NNModel import Network
-from brainforge.Utility.cost import Xent
-from brainforge.Utility.activations import Linear, Sigmoid, ReL
+from brainforge.Utility.cost import Xent, MSE
+from brainforge.Utility.activations import Linear, Sigmoid, Tanh
 from thNets.thANN import ConvNet
 
 
@@ -17,20 +17,20 @@ def test_ANN():
                  cross_val=0.1, pca=pca)
 
     def get_FFNN():
-        nw = Network(data, 2.0, 0.0, cost=Xent)
-        nw.add_fc(120, activation=Sigmoid)
-        # nw.add_drop(120, dropchance=0.5, activation=Sigmoid)
+        nw = Network(data, 0.5, 0.0, cost=Xent)
+        # nw.add_fc(30, activation=Sigmoid)
+        nw.add_drop(30, dropchance=0.5, activation=Tanh)
         nw.finalize_architecture(activation=Sigmoid)
         return nw
 
     def get_CNN():
-        nw = Network(data, 0.5, 5.0, Xent)
+        nw = Network(data, 0.5, 5.0, MSE)
         nw.add_conv()
         nw.add_pool()
         nw.finalize_architecture()
         return nw
 
-    epochs = 30
+    epochs = 10
     net = get_FFNN()
 
     for epoch in range(epochs):

@@ -318,17 +318,29 @@ class DropOut(FFLayer):
     def __init__(self, brain, inputs, neurons, dropout, position, activation):
         FFLayer.__init__(self, brain, inputs, neurons, position, activation)
 
-        self.dropchance = dropout
+        self.dropchance = 1 - dropout
+        self.mask = None
 
     def feedforward(self, questions):
         self.inputs = ravtm(questions)
-        self.excitation = (np.dot(self.inputs, self.weights) + self.biases) * \
-            np.random.rand(*self.weights.shape) < self.dropchance
+        self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
+        self.excitation = (np.dot(self.inputs, self.weights) + self.biases) * self.mask
         self.output = self.activation(self.excitation)
         return self.output
 
     def predict(self, question):
         return FFLayer.predict(self, question) * self.dropchance
+
+    def backpropagation(self):
+        return FFLayer.backpropagation(self) * self.mask
+
+    def weight_update(self):
+        l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
+        np.subtract((self.weights * l2) * self.mask,
+                    np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
+                    out=self.weights)
+        np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
+                    out=self.biases)
 
 
 class InputLayer(_FCLayer):

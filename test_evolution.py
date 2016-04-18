@@ -15,7 +15,7 @@ def test_evolution():
     limit = 100
     survivors = 0.4
     crossing_over_rate = 0.2
-    mutation_rate = 0.01
+    mutation_rate = 0.1
     max_offsprings = 3
     epochs = 10000
     verbose = 0
