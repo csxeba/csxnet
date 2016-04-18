@@ -322,8 +322,8 @@ class DropOut(FFLayer):
 
     def feedforward(self, questions):
         self.inputs = ravtm(questions)
-        self.excitation = np.dot(self.inputs, self.weights *
-                                 np.random.rand(*self.weights.shape) < self.dropchance)
+        self.excitation = (np.dot(self.inputs, self.weights) + self.biases) * \
+            np.random.rand(*self.weights.shape) < self.dropchance
         self.output = self.activation(self.excitation)
         return self.output
 
