@@ -221,13 +221,12 @@ class Network:
         self.layers[-1] = self.predictor
         print("Inserted predictor as output layer!")
 
-    # ---- Experimental section ----
+    # ---- Some utilities ----
 
-    def mp_predict(self, questions):
-        jobs = mp.cpu_count() + 1
-        pool = mp.Pool(jobs)
-        predictions = pool.map(self.predict, questions, chunksize=10)
-        return np.concatenate(predictions)
+    def save(self):
+        import pickle
+        import gzip
 
-    def _predwrap(self, batch, no):
-        return no, self.predict(batch)
+        fl = gzip.open("brain_object.bro", mode="wb")
+        pickle.dump(self, fl)
+        fl.close()

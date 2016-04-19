@@ -2,13 +2,13 @@ import numpy as np
 
 YAY = 0.8
 NAY = 0.2
-REAL = np.float64
+REAL = np.float32
 
 
-class _Data:
+class Data:
     """Base class for Data Wrappers"""
 
-    def __init__(self, source, cross_val, indeps_n, header, sep, end, pca):
+    def __init__(self, source, cross_val, indeps, header, sep, end, pca):
         self.learning = None
         self.testing = None
         self.lindeps = None
@@ -18,13 +18,13 @@ class _Data:
         self.type = None
 
         if isinstance(source, np.ndarray):
-            headers, data, indeps = parsearray(source, header, indeps_n)
+            headers, data, indeps = Parser.array(source, header, indeps)
         elif isinstance(source, tuple):
-            headers, data, indeps = parselearningtable(source)
+            headers, data, indeps = Parser.learningtable(source)
         elif isinstance(source, str) and "lt.pkl.gz" in source:
-            headers, data, indeps = parselearningtable(source)
+            headers, data, indeps = Parser.learningtable(source)
         else:
-            headers, data, indeps = parsecsv(source, header, indeps_n, sep, end)
+            headers, data, indeps = Parser.csv(source, header, indeps, sep, end)
 
         self.headers = headers
         self.data, self.indeps = data, indeps
@@ -91,7 +91,7 @@ class _Data:
         self.N = self.learning.shape[0]
 
 
-class CData(_Data):
+class CData(Data):
     """
     This class is for holding categorical learning myData. The myData is read
     from the supplied source .csv semicolon-separated file. The file should
@@ -100,31 +100,21 @@ class CData(_Data):
     """
 
     def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, 1, header, sep, end, pca)
+        Data.__init__(self, source, cross_val, 1, header, sep, end, pca)
 
         if pca:
             self.do_pca(pca)
         self.split_data()
 
-        # In categorical data, there is only 1 independent categorical variable
-        # which is stored in a 1-tuple or 1 long vector. We free it from its misery
         if isinstance(self.indeps[0], tuple) or isinstance(self.indeps[0], np.ndarray):
             self.indeps = np.array([d[0] for d in self.indeps])
             self.lindeps = np.array([d[0] for d in self.lindeps])
             self.tindeps = np.array([d[0] for d in self.tindeps])
 
-        # We extract the set of categories. set() removes duplicate values.
         self.categories = list(set(self.indeps))
 
-        # Every category gets associated with a y long array, where y is the
-        # number of categories. Every array gets filled with zeros.
         targets = np.zeros((len(self.categories),
                             len(self.categories)))
-
-        # The respective element of the array, corresponding to the associated
-        # category is set to YAY. Thus if 10 categories are present, then category
-        # No. 3 is represented by the following array:
-        # NAY, NAY, YAY, NAY, NAY, NAY, NAY, NAY, NAY, NAY
         targets += NAY
         np.fill_diagonal(targets, YAY)
 
@@ -141,19 +131,19 @@ class CData(_Data):
     def table(self, data="learning", shuff=True):
         """Returns a learning table"""
         if shuff:
-            datum, indep = shuffle(_Data.table(self, data))
+            datum, indep = shuffle(Data.table(self, data))
         else:
-            datum, indep = _Data.table(self, data)
+            datum, indep = Data.table(self, data)
         adep = np.array([self._dictionary[de] for de in indep])
 
         return datum, adep
 
     def do_pca(self, no_factors):
-        _Data.do_pca(self, no_factors)
+        Data.do_pca(self, no_factors)
         self.split_data()
 
     def restore(self):
-        _Data.restore(self)
+        Data.restore(self)
         self.split_data()
 
     def translate(self, preds, dummy=False):
@@ -176,7 +166,7 @@ class CData(_Data):
         return self.data[0].shape, len(self.categories)
 
 
-class RData(_Data):
+class RData(Data):
     """
     Class for holding regression learning myData. The myData is read from the
     supplied source .csv semicolon-separated file. The file should contain
@@ -184,16 +174,13 @@ class RData(_Data):
     The elements must be of type integer or float.
     """
 
-    def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
+    def __init__(self, source, cross_val, indeps, header, sep=";", end="\n", pca=0):
+        Data.__init__(self, source, cross_val, indeps, header, sep, end, pca)
 
         self._indepscopy = np.copy(np.atleast_2d(self.indeps))
 
         self.type = "regression"
         self._downscaled = False
-
-        # Calculate the scaling factors for the target values and store them as
-        # (a, b). Every target value is scaled by ax + b.
         self._oldfctrs = None
         self._newfctrs = None
 
@@ -208,70 +195,80 @@ class RData(_Data):
             self.indeps, self._oldfctrs, self._newfctrs = \
                 featscale(self.indeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
             self._downscaled = True
-        _Data.split_data(self)
+        Data.split_data(self)
         self.indeps = self.indeps.astype(REAL)
         self.lindeps = self.lindeps.astype(REAL)
         self.tindeps = self.tindeps.astype(REAL)
 
     def do_pca(self, no_factors):
-        _Data.do_pca(self, no_factors)
+        Data.do_pca(self, no_factors)
         self.split_data()
 
     def restore(self):
-        _Data.restore(self)
+        Data.restore(self)
         self.split_data()
 
     def upscale(self, A):
         from .nputils import featscale
-        if not self._downscaled:
-            return A
-        else:
-            return featscale(A, axis=0, dfctr=self._newfctrs, ufctr=self._oldfctrs)
+        return featscale(A, axis=0, dfctr=self._newfctrs, ufctr=self._oldfctrs)
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
 
 
-def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
-    file = open(source, encoding='utf8')
-    text = file.read()
-    text.replace(",", ".")
-    file.close()
+class Parser:
+    @staticmethod
+    def csv(source: str, header: int, indeps: tuple, sep: str, end: str):
+        file = open(source, encoding='utf8')
+        text = file.read()
+        text.replace(",", ".")
+        file.close()
 
-    lines = text.split(end)
+        lines = text.split(end)
 
-    if header:
-        headers = lines[0]
-        headers = headers.split(sep)
-        lines = lines[1:-1]
-    else:
-        lines = lines[:-1]
-        headers = None
+        if header:
+            headers = lines[0]
+            headers = headers.split(sep)
+            lines = lines[1:-1]
+        else:
+            lines = lines[:-1]
+            headers = None
 
-    lines = np.array([line.split(sep) for line in lines])
-    indeps = lines[..., :indeps_n]
-    data = lines[..., indeps_n:].astype(REAL)
+        lines = np.array([line.split(sep) for line in lines])
 
-    return headers, data, indeps
+        cat_indeps, con_indeps = indeps
+        indeps = lines[..., :cat_indeps+con_indeps]
+        ctindeps = indeps[..., :cat_indeps]
+        cnindeps = indeps[..., cat_indeps:].astype(REAL)
 
+        data = lines[..., cat_indeps+con_indeps:].astype(REAL)
 
-def parsearray(X: np.ndarray, header: int, indeps_n: int):
-    headers = X[0] if header else None
-    matrix = X[1:] if header else X
-    indeps = matrix[:, :indeps_n]
-    data = matrix[:, indeps_n:]
-    return headers, data, indeps
+        return headers, data, (ctindeps, cnindeps)
 
+    @staticmethod
+    def array(X, header, indeps):
+        headers = X[0] if header else None
+        matrix = X[1:] if header else X
 
-def parselearningtable(source, coding=None):
-    if isinstance(source, str) and source[-7:] == ".pkl.gz":
-        source = unpickle_gzip(source, coding)
-    if not isinstance(source, tuple):
-        raise RuntimeError("Please supply a learning table (tuple) or a *lt.pkl.gz file!")
-    if source[0].dtype != REAL:
-        print("Warning! dtype differences in datamodel.parselearningtable()!")
+        cat_indeps, con_indeps = indeps
+        indeps = matrix[..., :sum(indeps)]
+        ctindeps = indeps[..., :cat_indeps]
+        cnindeps = indeps[..., cat_indeps:]
 
-    return None, source[0], source[1]
+        data = matrix[:, sum(indeps):]
+
+        return headers, data, (ctindeps, cnindeps)
+
+    @staticmethod
+    def learningtable(source, coding=None):
+        if isinstance(source, str) and source[-7:] == ".pkl.gz":
+            source = unpickle_gzip(source, coding)
+        if not isinstance(source, tuple):
+            raise RuntimeError("Please supply a learning table (tuple) or a *lt.pkl.gz file!")
+        if source[0].dtype != REAL:
+            print("Warning! dtype differences in datamodel.parselearningtable()!")
+
+        return None, source[0], source[1]
 
 
 def unpickle_gzip(source: str, coding='latin1'):

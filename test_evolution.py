@@ -12,15 +12,15 @@ def test_evolution():
     def fn2(ind, queue=None):
         ind.fitness = sum(ind.genome)
 
-    limit = 100
+    limit = 1000
     survivors = 0.4
     crossing_over_rate = 0.2
-    mutation_rate = 0.1
+    mutation_rate = 0.01
     max_offsprings = 3
-    epochs = 10000
+    epochs = 1000
     verbose = 0
     fitness = fn2
-    genome_len = 5
+    genome_len = 10
 
     ranges = [(0, 30) for _ in range(genome_len)]
 
@@ -42,4 +42,3 @@ if __name__ == '__main__':
     start = time.time()
     test_evolution()
     print("Time elapsed: {} s".format(round(time.time()-start, 2)))
-

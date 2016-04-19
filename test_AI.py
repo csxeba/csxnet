@@ -4,7 +4,7 @@ from datamodel import CData, mnist_to_lt
 from brainforge.Architecture.NNModel import Network
 from brainforge.Utility.cost import Xent, MSE
 from brainforge.Utility.activations import Linear, Sigmoid, Tanh
-from thNets.thANN import ConvNet
+# from thNets.thANN import ConvNet
 
 
 datapath = "D:/Data/" if sys.platform == 'win32' else "/data/Prog/data/learning_tables/"

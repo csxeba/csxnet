@@ -23,9 +23,11 @@ class PoolLayer(_VecLayer):
     def feedforward(self, questions):
         """
         Implementation of a max pooling layer.
+
         :param questions: numpy.ndarray, a batch of outputs from the previous layer
         :return: numpy.ndarray, max pooled batch
         """
+
         m, f = questions.shape[:2]
         result = np.zeros((m*f*len(self.coords),))
         self.backpass_filter = np.zeros_like(questions)
