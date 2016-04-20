@@ -2,7 +2,7 @@ import numpy as np
 
 YAY = 0.8
 NAY = 0.2
-REAL = np.float64
+REAL = np.float32
 
 
 class _Data:
@@ -127,6 +127,8 @@ class CData(_Data):
         # NAY, NAY, YAY, NAY, NAY, NAY, NAY, NAY, NAY, NAY
         targets += NAY
         np.fill_diagonal(targets, YAY)
+
+        targets = targets.astype(REAL)
 
         self._dictionary = {}
         self._dummycodes = {}
@@ -269,7 +271,8 @@ def parselearningtable(source, coding=None):
     if not isinstance(source, tuple):
         raise RuntimeError("Please supply a learning table (tuple) or a *lt.pkl.gz file!")
     if source[0].dtype != REAL:
-        print("Warning! dtype differences in datamodel.parselearningtable()!")
+        print("Warning! dtype differences in datamodel.parselearningtable()! Casting...")
+        source = source[0].astype(REAL), source[1]
 
     return None, source[0], source[1]
 

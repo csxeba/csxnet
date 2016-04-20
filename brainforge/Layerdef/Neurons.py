@@ -1,4 +1,5 @@
 import random
+import math
 
 from ..Utility.activations import *
 
@@ -6,7 +7,7 @@ from ..Utility.activations import *
 class Neuron:
     def __init__(self, inputs, position, activation):
         self.position = position
-        self.weights = [random.normalvariate(0, 1) for _ in range(inputs)]
+        self.weights = [random.normalvariate(0, 1) / math.sqrt(inputs) for _ in range(inputs)]
         self.bias = random.normalvariate(0, 1)
         self.excitation = 0
         self.output = 0

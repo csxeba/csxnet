@@ -2,7 +2,7 @@
 This is a FFNN with some feedback capabilities implemented."""
 
 from .FFNN import *
-from ..Layerdef.Neurons import FFNeuron
+from ..Layerdef.Neurons import Neuron
 from ..Utility.activations import Sigmoid
 
 sigmoid = Sigmoid
@@ -21,8 +21,8 @@ class RNN(FFNeuralBrain):
         n_feedbackers = int(len(self.hiddens[-1]) * (FEEDBACKERS_PERCENT / 100))
         self.feedbackers = self.hiddens[-1][:n_feedbackers]
 
-        self.hiddens[0] = [FFNeuron(inputs=layout[0] + n_feedbackers,
-                                    position=(0, i))
+        self.hiddens[0] = [Neuron(inputs=layout[0] + n_feedbackers,
+                                  position=(0, i), activation=sigmoid)
                            for i in range(layout[1])]
         self.architecture = "RNN"
 
