@@ -14,13 +14,14 @@ print("floatX is set to <{}>".format(floatX))
 
 
 class ConvNetExplicit:
-    def __init__(self, data, eta, lmbd,
+    def __init__(self, data, eta, lmbd1, lmbd2,
                  nfilters=1, cfshape=(5, 5), pool=2, hidden1=120, hidden2=60,
                  cost="MSE"):
 
         assert cfshape[0] == cfshape[1], "Non-sqare filters are not <yet> supported!"
 
         self.data = data
+        self.age = 0
 
         channels, x, y = data.learning[0].shape
         cfiltershape = (nfilters, channels, cfshape[0], cfshape[1])
@@ -60,21 +61,24 @@ class ConvNetExplicit:
         fc2act = nnet.sigmoid(fc1act.dot(hf2cw))
         outact = nnet.softmax(fc2act.dot(outw))
 
-        # Sqared error cost
+        l1 = sum(((cfilter**2).sum(), (hf1cw**2).sum(), (hf2cw**2).sum(), (outw**2).sum()))
+        l1 *= lmbd1 / (self.data.N / 2)
+        l2 = sum((T.abs_(cfilter).sum(), T.abs_(hf1cw).sum(), T.abs_(hf2cw).sum(), T.abs_(outw).sum()))
+        l2 *= lmbd2 / (self.data.N * 2)
+
         cost = ((targets - outact) ** 2).sum() if cost.lower() == "mse" else \
             nnet.categorical_crossentropy(outact, targets).sum()
+        cost += l1 + l2
 
         prediction = T.argmax(outact, axis=1)
 
-        l2term = 1 - ((eta * lmbd) / data.N)
+        update_cfilter = cfilter - (eta / m_) * T.grad(cost, cfilter)
 
-        update_cfilter = l2term * cfilter - (eta / m_) * T.grad(cost, cfilter)
+        update_hf1cw = hf1cw - (eta / m_) * T.grad(cost, hf1cw)
 
-        update_hf1cw = l2term * hf1cw - (eta / m_) * T.grad(cost, hf1cw)
+        update_hf2cw = hf2cw - (eta / m_) * T.grad(cost, hf2cw)
 
-        update_hf2cw = l2term * hf2cw - (eta / m_) * T.grad(cost, hf2cw)
-
-        update_outw = l2term * outw - (eta / m_) * T.grad(cost, outw)
+        update_outw = outw - (eta / m_) * T.grad(cost, outw)
 
         self._train = theano.function(inputs=[inputs, targets, m],
                                       updates=[(cfilter, update_cfilter),
@@ -91,6 +95,7 @@ class ConvNetExplicit:
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
             m = questions.shape[0]
             self._train(questions, targets, m)
+        self.age += 1
 
     def evaluate(self, on="testing"):
         m = self.data.n_testing
@@ -102,12 +107,12 @@ class ConvNetExplicit:
 
 
 class ConvNetDynamic:
-    def __init__(self, data, eta, lmbd, cost="MSE"):
+    def __init__(self, data, eta, lmbd1, lmbd2, cost="MSE"):
         self.data = data
         self.fanin, self.outputs = data.neurons_required()
         self.eta = eta
-        self.lmbd = lmbd
-        self.l2term = 1 - ((eta * lmbd) / data.N)
+        self.lmbd1 = lmbd1
+        self.lmbd2 = lmbd2
 
         self.layers = []
         self.forward_pass_rules = []
@@ -121,6 +126,8 @@ class ConvNetDynamic:
         self.prediction = None
         self._train = None
         self._predict = None
+
+        self.age = 0
 
     def add_convpool(self, conv, filters, pool):
         pos = len(self.layers)
@@ -152,12 +159,16 @@ class ConvNetDynamic:
                 self.forward_pass_rules.append(layer.output(self.forward_pass_rules[-1]))
 
         def define_cost_and_prediction():
-            l2normsq = sum([(layer.weights**2).sum() for layer in self.layers])
+            l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
+            l1 *= self.lmbd1 / (self.data.N / 2)
+            l2 = sum([(layer.weights**2).sum() for layer in self.layers])
+            l2 *= self.lmbd2 / (self.data.N * 2)
+
             self.cost = \
                 nnet.categorical_crossentropy(self.forward_pass_rules[-1], self.targets).sum() \
                     if self.cost.lower() == "xent" else \
                 ((self.targets - self.forward_pass_rules[-1]) ** 2).sum()
-            self.cost = self.cost + (l2normsq * (self.eta * self.lmbd)) / self.data.N
+            self.cost += l1 + l2
 
             self.prediction = T.argmax(self.forward_pass_rules[-1], axis=1)
 
@@ -185,6 +196,7 @@ class ConvNetDynamic:
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
             m = float(questions.shape[0])
             self._train(questions, targets, m)
+        self.age += 1
 
     def evaluate(self, on="tesing"):
         m = self.data.n_testing
