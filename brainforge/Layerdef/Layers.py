@@ -340,7 +340,10 @@ class DropOut(FFLayer):
         return FFLayer.predict(self, question) * self.dropchance
 
     def backpropagation(self):
-        return FFLayer.backpropagation(self) * self.mask
+        prev = self.brain.layers[self.position - 1]
+        posh = [self.error.shape[0]] + list(prev.outshape)
+        deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
+        return deltas * prev.activation.derivative(prev.excitation)
 
     def weight_update(self):
         l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)

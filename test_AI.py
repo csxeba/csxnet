@@ -18,8 +18,9 @@ def test_ANN():
 
     def get_FFNN():
         nw = Network(data, 0.5, 0.0, cost=Xent)
-        nw.add_fc(30, activation=Sigmoid)
-        # nw.add_drop(30, dropchance=0.5, activation=Tanh)
+        nw.add_fc(1000, activation=Sigmoid)
+        nw.add_drop(500, dropchance=0.5, activation=Sigmoid)
+        nw.add_fc(250, activation=Sigmoid)
         nw.finalize_architecture(activation=Sigmoid)
         return nw
 
@@ -30,11 +31,11 @@ def test_ANN():
         nw.finalize_architecture()
         return nw
 
-    epochs = 10
+    epochs = 20
     net = get_FFNN()
 
     for epoch in range(epochs):
-        net.learn(10)
+        net.learn(20)
         ont, onl = net.evaluate(), net.evaluate("learning")
         print("Epoch {} Cost': {}".format(epoch+1, net.error))
         print("Acc: T: {} L: {}".format(ont, onl))
