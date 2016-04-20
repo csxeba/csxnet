@@ -25,6 +25,8 @@ class _LayerBase(object):
 
     def receive_error(self, error_vector): pass
 
+    def shuffle(self): pass
+
 
 class _VecLayer(_LayerBase):
     """Base class for layer types, which operate on tensors

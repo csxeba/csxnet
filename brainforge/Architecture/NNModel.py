@@ -230,3 +230,6 @@ class Network:
         fl = gzip.open("brain_object.bro", mode="wb")
         pickle.dump(self, fl)
         fl.close()
+
+    def shuffle(self):
+

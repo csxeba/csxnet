@@ -17,6 +17,7 @@ This program is free software: you can redistribute it and/or modify it under
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 import random
+import math
 
 from .NNModel import Network
 from ..Utility.activations import *
@@ -94,6 +95,9 @@ class FFNeuralBrain:
                 neu.weights = [weight + prevLayer[index].output * neu.error * self.rate
                                for index, weight in enumerate(neu.weights)]
                 neu.bias += neu.error
+
+    def _sigmoid(self, z):
+        return 1 / (1 + math.exp(-z))
 
 
 class FFLayerBrain(Network):

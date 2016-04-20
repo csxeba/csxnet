@@ -238,6 +238,9 @@ class ConvLayer(_VecLayer):
                           for start0, end0, start1, end1 in self.coords]
                          for stim in slices])
 
+    def shuffle(self):
+        self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))
+
 
 class FFLayer(_FCLayer):
     def __init__(self, brain, inputs, neurons, position, activation):
@@ -314,6 +317,9 @@ class FFLayer(_FCLayer):
         :return: None
         """
         self.error = error
+
+    def shuffle(self):
+        self.weights = np.random.randn(*self.weights.shape) / np.sqrt(self.inputs)
 
 
 class DropOut(FFLayer):
