@@ -106,6 +106,7 @@ class ConvNetDynamic:
         self.data = data
         self.fanin, self.outputs = data.neurons_required()
         self.eta = eta
+        self.lmbd = lmbd
         self.l2term = 1 - ((eta * lmbd) / data.N)
 
         self.layers = []
@@ -151,19 +152,21 @@ class ConvNetDynamic:
                 self.forward_pass_rules.append(layer.output(self.forward_pass_rules[-1]))
 
         def define_cost_and_prediction():
+            l2normsq = sum([(layer.weights**2).sum() for layer in self.layers])
             self.cost = \
                 nnet.categorical_crossentropy(self.forward_pass_rules[-1], self.targets).sum() \
                     if self.cost.lower() == "xent" else \
                 ((self.targets - self.forward_pass_rules[-1]) ** 2).sum()
+            self.cost = self.cost + (l2normsq * (self.eta * self.lmbd)) / self.data.N
 
             self.prediction = T.argmax(self.forward_pass_rules[-1], axis=1)
 
         def define_update_rules():
             for layer in self.layers:
+                gradient = (self.eta / self.m) * theano.grad(self.cost, layer.weights)
                 self.update_rules.append((
                     layer.weights,
-                    self.l2term * layer.weights -
-                    (self.eta / self.m) * theano.grad(self.cost, layer.weights)
+                    layer.weights - gradient
                 ))
 
         add_output_layer()
@@ -237,3 +240,9 @@ class ThFCLayer:
 class ThOutputLayer(ThFCLayer):
     def __init__(self, neurons, inshape, position):
         ThFCLayer.__init__(self, neurons, inshape, position, activation="softmax")
+
+
+class ThDropoutLayer(ThFCLayer):
+    def __init__(self, neurons, inshape, dropchance, position, activation="sigmoid"):
+        ThFCLayer.__init__(neurons, inshape, position, activation)
+        print("Dropout not implemented yet, falling back to ThFCLayer!")
