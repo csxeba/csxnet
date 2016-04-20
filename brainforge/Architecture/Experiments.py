@@ -40,3 +40,4 @@ class AboLayer(_LayerBase):
 
     def feedforward(self, inputs):
         """this ain't so simple after all O.O"""
+        pass
