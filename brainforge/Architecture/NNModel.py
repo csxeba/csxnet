@@ -232,4 +232,5 @@ class Network:
         fl.close()
 
     def shuffle(self):
-
+        for layer in self.layers:
+            layer.shuffle()

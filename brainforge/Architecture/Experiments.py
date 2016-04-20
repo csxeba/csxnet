@@ -1,5 +1,8 @@
 """My crazy expreminets are taking place here"""
 
+from .NNModel import Network
+from ..Layerdef import _LayerBase
+
 
 class Abomination:
     """
@@ -12,12 +15,28 @@ class Abomination:
     will be built from complete nerual networks instead of neurons...
     """
 
-    def __init__(self, fanin, abolayer, outshape):
-        pass
+    def __init__(self, data, eta, lmbd, cost):
+        self.data = data
+        self.eta = eta
+        self.lmbd = lmbd
+        self.cost = cost
+        self.layers = []
 
 
-class AboLayer:
-    def __init__(self, brain, minionlayout, no_minions):
+class AboLayer(_LayerBase):
+    def __init__(self, brain: Abomination, no_minions):
+        self.brain = brain
         self.fanin = brain.layers[-1].fanout
-        self.fanout = no_minions * minionlayout[-1]
         self.neurons = []
+
+        for pos in range(no_minions):
+            self.neurons.append(self._forge_minion())
+
+    def _forge_minion(self):
+        minion = Network(self.brain.data, self.brain.eta, self.brain.lmbd, self.brain.cost)
+        minion.add_fc(10)
+        minion.finalize_architecture()
+        return minion
+
+    def feedforward(self, inputs):
+        """this ain't so simple after all O.O"""
