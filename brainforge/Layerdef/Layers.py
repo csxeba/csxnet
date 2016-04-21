@@ -6,7 +6,8 @@ from scipy.ndimage import convolve
 from ..Layerdef._LayerBase import _VecLayer, _FCLayer
 from ..Utility.activations import Linear
 from ..Utility.operations import maxpool
-from ..Utility.utility import ravel_to_matrix as ravtm, l2term
+from ..Utility.utility import l2term, l1term
+from csxnet.nputils import ravel_to_matrix as ravtm
 
 
 class PoolLayer(_VecLayer):
@@ -249,6 +250,7 @@ class FFLayer(_FCLayer):
                           activation=activation)
 
         self.weights = np.random.randn(inputs, neurons) / np.sqrt(inputs)
+        self.gradients = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
         self.inputs = None
         self.N = 0  # current batch size
@@ -299,12 +301,21 @@ class FFLayer(_FCLayer):
         :return: None
         """
         # Apply L2 regularization, aka weight decay
-        l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
-        np.subtract(self.weights * l2,
-                    np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
+        gradients = np.dot(self.inputs.T, self.error) / self.brain.m
+        l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
+        l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
+
+        if self.brain.lmbd2:
+            self.weights *= l2
+        if self.brain.lmbd1:
+            self.weights -= l1 * np.sign(self.weights)
+
+        np.subtract(self.weights, (gradients + self.brain.mu * self.gradients) * self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                     out=self.biases)
+
+        self.gradients = gradients
 
     def receive_error(self, error):
         """

@@ -7,12 +7,14 @@ from ..Utility.utility import ravel_to_matrix as rtm
 
 
 class Network:
-    def __init__(self, data, eta: float, lmbd: float, cost: callable):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost: callable):
 
         self.cost = cost()
         self.error = float()
         self.eta = eta
-        self.lmbd = lmbd
+        self.lmbd1 = lmbd1
+        self.lmbd2 = lmbd2
+        self.mu = mu
         self.inshape, self.outsize = data.neurons_required()
         self.N = data.N  # Number of training inputs
         self.m = int()  # Batch size goes here
@@ -23,6 +25,7 @@ class Network:
         self.encoder = None
 
         self.finalized = False
+        self.architecture = []
 
         self.data = data
 
@@ -34,31 +37,37 @@ class Network:
         fshape = [self.inshape[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
         self.layers.append(ConvLayer(*args))
+        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation)[:4]))
         # brain, fshape, inshape, num_filters, stride, position, activation="sigmoid"
 
     def add_pool(self, pool=2):
         args = (self, self.layers[-1].outshape, (pool, pool), pool, len(self.layers))
         self.layers.append(PoolLayer(*args))
+        self.architecture.append("{} Pool".format(pool))
         # brain, inshape, fshape, stride, position
 
     def add_fc(self, neurons, activation=Sigmoid):
-        args = (self, np.prod(self.layers[-1].outshape), neurons, len(self.layers), activation)
+        inpts = np.prod(self.layers[-1].outshape)
+        args = (self, inpts, neurons, len(self.layers), activation)
         self.layers.append(FFLayer(*args))
+        self.architecture.append("{} FC: {}".format(neurons, str(activation)[:4]))
         # brain, inputs, neurons, position, activation
 
     def add_drop(self, neurons, dropchance=0.25, activation=Sigmoid):
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
+        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
     def finalize_architecture(self, activation=Sigmoid):
+        fanin = np.prod(self.inshape)
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
-        eargs = (self, np.prod(self.layers[-1].outshape), np.prod(self.inshape), len(self.layers), activation)
+        eargs = (self, np.prod(self.layers[-1].outshape), fanin, len(self.layers), activation)
         self.predictor = FFLayer(*pargs)
         self.encoder = FFLayer(*eargs)
         self.layers.append(self.predictor)
+        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation)[:4]))
         self.finalized = True
-        # print("--- Finalized  Architecture ---")
 
     # ---- Methods for model fitting ----
 
@@ -234,3 +243,14 @@ class Network:
     def shuffle(self):
         for layer in self.layers:
             layer.shuffle()
+
+    def describe(self, verbose=0):
+        chain = "----------\n"
+        chain += "CsxNet BrainForge Artificial Neural Network.\n"
+        chain += "Age: " + str(self.age) + "\n"
+        chain += "Architecture: " + str(self.architecture) + "\n"
+        chain += "----------"
+        if verbose:
+            print(chain)
+        else:
+            return chain

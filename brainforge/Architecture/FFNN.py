@@ -109,8 +109,9 @@ class FFLayerBrain(Network):
     inputs, hiddens, outputs. Multiple hidden layers may be defined.
     """
 
-    def __init__(self, hiddens, data, eta, lmbd=0.0, cost=Xent, activation=Sigmoid):
-        Network.__init__(self, data=data, eta=eta, lmbd=lmbd, cost=cost)
+    def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
+                 cost=Xent, activation=Sigmoid):
+        Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
         if isinstance(hiddens, int):
             hiddens = (hiddens,)

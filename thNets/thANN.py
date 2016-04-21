@@ -11,6 +11,7 @@ theano.config.exception_verbosity = "high"
 floatX = theano.config.floatX
 
 print("floatX is set to <{}>".format(floatX))
+print("Device used: <{}>".format(theano.config.device))
 
 
 class ConvNetExplicit:
@@ -105,14 +106,26 @@ class ConvNetExplicit:
         acc = np.mean(np.equal(np.argmax(idp, axis=1), pred))
         return cost, acc
 
+    def describe(self, verbose=1):
+        chain = "---------------\n"
+        chain += "Explicit Theano-based Artificial Neural Network.\n"
+        chain += "Age: " + str(self.age) + "\n"
+        chain += "Architecture is hardcoded -> please check the source code...\n"
+        chain += "---------------"
+        if verbose:
+            print(chain)
+        else:
+            return chain
+
 
 class ConvNetDynamic:
-    def __init__(self, data, eta, lmbd1, lmbd2, cost="MSE"):
+    def __init__(self, data, eta, lmbd1, lmbd2, mu, cost):
         self.data = data
         self.fanin, self.outputs = data.neurons_required()
         self.eta = eta
         self.lmbd1 = lmbd1
         self.lmbd2 = lmbd2
+        self.mu = mu
 
         self.layers = []
         self.forward_pass_rules = []
@@ -128,10 +141,12 @@ class ConvNetDynamic:
         self._predict = None
 
         self.age = 0
+        self.architecture = []
 
     def add_convpool(self, conv, filters, pool):
         pos = len(self.layers)
         fanin = self.fanin if not pos else self.layers[-1].outshape
+        self.architecture.append("{}x{}x{} Conv + {} Pool".format(filters, conv, conv, pool))
         self.layers.append(ThConvPoolLayer(conv, filters, pool, fanin, pos))
 
     def add_fc(self, neurons, activation="sigmoid"):
@@ -144,6 +159,7 @@ class ConvNetDynamic:
         pos = len(self.layers)
         fanin = self.fanin if not pos else self.layers[-1].outshape
 
+        self.architecture.append("FC{}: {}".format(neurons, activation[:4]))
         self.layers.append(ThFCLayer(neurons, fanin, pos, activation))
 
     def finalize(self):
@@ -151,6 +167,7 @@ class ConvNetDynamic:
         def add_output_layer():
             position = len(self.layers)
             fanin = self.fanin if not position else self.layers[-1].outshape
+            self.architecture.append("Out{}: {}".format(self.outputs, "softmax"))
             self.layers.append(ThOutputLayer(self.outputs, fanin, position))
 
         def define_feedforward():
@@ -163,6 +180,20 @@ class ConvNetDynamic:
             l1 *= self.lmbd1 / (self.data.N / 2)
             l2 = sum([(layer.weights**2).sum() for layer in self.layers])
             l2 *= self.lmbd2 / (self.data.N * 2)
+
+            chain = "Cost: " + self.cost
+            reg = ""
+            if self.lmbd1 or self.lmbd2:
+                reg += " + "
+            if self.lmbd1:
+                reg += "L1"
+                if self.lmbd2:
+                    reg += " + L2 reg."
+                else:
+                    reg += " reg."
+            elif self.lmbd2:
+                reg += "L2 reg."
+            self.architecture.append(chain + reg)
 
             self.cost = \
                 nnet.categorical_crossentropy(self.forward_pass_rules[-1], self.targets).sum() \
@@ -177,8 +208,9 @@ class ConvNetDynamic:
                 gradient = (self.eta / self.m) * theano.grad(self.cost, layer.weights)
                 self.update_rules.append((
                     layer.weights,
-                    layer.weights - gradient
+                    layer.weights - (gradient + self.mu * layer.grads)
                 ))
+                layer.grads = gradient
 
         add_output_layer()
         define_feedforward()
@@ -187,7 +219,10 @@ class ConvNetDynamic:
 
         self._train = theano.function(inputs=[self.inputs, self.targets, self.m],
                                       updates=self.update_rules,
-                                      name="_train")
+                                      name="_train"
+                                      # mode=theano.compile.MonitorMode(pre_func=inspect_inpt,
+                                      #                                 post_func=inspect_outpt)
+                                      )
         self._predict = theano.function(inputs=[self.inputs, self.targets],
                                         outputs=[self.cost, self.prediction],
                                         name="_predict")
@@ -205,6 +240,17 @@ class ConvNetDynamic:
         cost, pred = self._predict(qst, idp)
         acc = np.mean(np.equal(np.argmax(idp, axis=1), pred))
         return cost, acc
+
+    def describe(self, verbose=1):
+        chain = "---------------\n"
+        chain += "Dynamic Theano-based Artificial Neural Network.\n"
+        chain += "Age: " + str(self.age) + "\n"
+        chain += "Architecture: " + str(self.architecture) + "\n"
+        chain += "---------------"
+        if verbose:
+            print(chain)
+        else:
+            return chain
 
 
 class ThConvPoolLayer:
@@ -225,11 +271,15 @@ class ThConvPoolLayer:
              / np.sqrt(fanin)).astype(floatX),
             name="{}. ConvFilters".format(position)
         )
+        self.grads = theano.shared(
+            np.zeros((filters, channel, conv, conv), dtype=floatX),
+            name="{}. ConvGrads".format(position)
+        )
 
         self.pool = pool
 
     def output(self, inputs):
-        cact = nnet.sigmoid(nnet.conv2d(inputs, self.weights))
+        cact = T.nnet.sigmoid(nnet.conv2d(inputs, self.weights))
         pact = max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
         return pact
 
@@ -243,6 +293,7 @@ class ThFCLayer:
         self.activation = {"sigmoid": nnet.sigmoid, "tanh": T.tanh, "softmax": nnet.softmax}[activation.lower()]
         self.weights = theano.shared((np.random.randn(fanin, neurons) / fanin).astype(floatX),
                                      name="{}. FCweights".format(position))
+        self.grads = theano.shared(np.zeros((fanin, neurons), dtype=floatX), name="{}. FCgrads".format(position))
 
     def output(self, inputs):
         inputs = T.reshape(inputs, (inputs.shape[0], T.prod(inputs.shape[1:])))

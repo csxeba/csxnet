@@ -25,7 +25,7 @@ class FastSigmoid(_ActivationFunctionBase):
     def __call__(self, Z):
         return np.divide(Z, np.add(1, np.abs(Z)))
 
-    def __repr__(self): return "fast sigmoid"
+    def __str__(self): return "fast sigmoid"
 
     def derivative(self, Z):
         return np.divide(1.0, np.add(np.abs(Z), 1.0)**2)

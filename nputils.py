@@ -36,3 +36,7 @@ def haversine(coords1: np.ndarray, coords2: np.ndarray):
     return e * R
 
 
+def ravel_to_matrix(A):
+    A = np.atleast_2d(A)
+    A = A.reshape(A.shape[0], np.prod(A.shape[1:]))
+    return A

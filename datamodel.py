@@ -1,14 +1,14 @@
 import numpy as np
 
-YAY = 0.8
-NAY = 0.2
+YAY = 1.0
+NAY = 0.0
 REAL = np.float32
 
 
 class _Data:
     """Base class for Data Wrappers"""
 
-    def __init__(self, source, cross_val, indeps_n, header, sep, end, pca):
+    def __init__(self, source, cross_val, indeps_n, header, sep, end):
         self.learning = None
         self.testing = None
         self.lindeps = None
@@ -78,9 +78,6 @@ class _Data:
         self.data -= np.mean(self.data, axis=0)
         self.data /= np.std(self.data, axis=0)
 
-    def restore(self):
-        self.data = self._datacopy
-
     def split_data(self):
         dat, ind = shuffle((self.data, self.indeps))
         self.learning = dat[self.n_testing:]
@@ -99,7 +96,7 @@ class CData(_Data):
     """
 
     def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, 1, header, sep, end, pca)
+        _Data.__init__(self, source, cross_val, 1, header, sep, end)
 
         if pca:
             self.do_pca(pca)
@@ -157,10 +154,6 @@ class CData(_Data):
         _Data.standardize(self)
         self.split_data()
 
-    def restore(self):
-        _Data.restore(self)
-        self.split_data()
-
     def translate(self, preds, dummy=False):
         """Translates a Brain's predictions to a human-readable answer"""
 
@@ -190,7 +183,7 @@ class RData(_Data):
     """
 
     def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, indeps_n, header, sep, end, pca)
+        _Data.__init__(self, source, cross_val, indeps_n, header, sep, end)
 
         self._indepscopy = np.copy(np.atleast_2d(self.indeps))
 
@@ -224,10 +217,6 @@ class RData(_Data):
 
     def standardize(self):
         _Data.standardize(self)
-        self.split_data()
-
-    def restore(self):
-        _Data.restore(self)
         self.split_data()
 
     def upscale(self, A):
