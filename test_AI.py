@@ -1,5 +1,7 @@
 import sys
 
+import numpy as np
+
 from datamodel import CData, mnist_to_lt
 from brainforge.Architecture.NNModel import Network
 from brainforge.Utility.cost import Xent, MSE
@@ -43,6 +45,27 @@ def test_ANN():
         log += "E:{}\nC:{}\nT:{}\nL:{}\n\n".format(epoch+1, net.error, ont, onl)
 
 
+def xor():
+    global log
+    data = CData((np.array([[0, 0],[0, 1], [1, 0], [1, 1]]),
+                np.array([[0], [1], [1], [0]])), .0, False)
+
+    net = Network(data, 0.001, 0.0, 0.0, 0.0, MSE)
+    net.add_fc(4)
+    net.add_fc(4)
+    net.finalize_architecture()
+
+    cost = MSE()
+    for epoch in range(1, 10):
+        net.learn(4)
+        c = cost(net.predict(data.data), data.indeps)
+        log += "C@{}: {}\n".format(epoch, c)
+        if epoch % 1 == 0:
+            print("Cost @ {}: {}".format(epoch, c))
+
+
+
+
 def test_thCNN():
     # lt = unpickle_gzip(datapath+"learning_tables/mnist.pkl.gz")
     # lt = (lt[0]/255, lt[1])
@@ -64,7 +87,7 @@ def test_thCNN():
 
 
 if __name__ == '__main__':
-    test_ANN()
+    xor()
     logfl = open("log.txt", "w")
     logfl.write(log)
     logfl.close()
