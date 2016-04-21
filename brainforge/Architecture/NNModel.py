@@ -37,7 +37,7 @@ class Network:
         fshape = [self.inshape[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
         self.layers.append(ConvLayer(*args))
-        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation)[:4]))
+        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation())[:4]))
         # brain, fshape, inshape, num_filters, stride, position, activation="sigmoid"
 
     def add_pool(self, pool=2):
@@ -50,13 +50,13 @@ class Network:
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
         self.layers.append(FFLayer(*args))
-        self.architecture.append("{} FC: {}".format(neurons, str(activation)[:4]))
+        self.architecture.append("{} FC: {}".format(neurons, str(activation())[:4]))
         # brain, inputs, neurons, position, activation
 
     def add_drop(self, neurons, dropchance=0.25, activation=Sigmoid):
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
-        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
+        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation())[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
     def finalize_architecture(self, activation=Sigmoid):
@@ -66,7 +66,7 @@ class Network:
         self.predictor = FFLayer(*pargs)
         self.encoder = FFLayer(*eargs)
         self.layers.append(self.predictor)
-        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation)[:4]))
+        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation())[:4]))
         self.finalized = True
 
     # ---- Methods for model fitting ----

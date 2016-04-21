@@ -357,12 +357,22 @@ class DropOut(FFLayer):
         return deltas * prev.activation.derivative(prev.excitation)
 
     def weight_update(self):
-        l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
-        np.subtract((self.weights * l2) * self.mask,
-                    np.dot(self.inputs.T, self.error) * (self.brain.eta / self.brain.m),
+        # Apply L2 regularization, aka weight decay
+        gradients = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
+        l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
+        l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
+
+        if self.brain.lmbd2:
+            self.weights *= l2
+        if self.brain.lmbd1:
+            self.weights -= l1 * np.sign(self.weights)
+
+        np.subtract(self.weights, (gradients + self.brain.mu * self.gradients) * self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                     out=self.biases)
+
+        self.gradients = gradients
 
 
 class InputLayer(_FCLayer):

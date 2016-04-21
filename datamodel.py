@@ -21,10 +21,14 @@ class _Data:
             headers, data, indeps = parsearray(source, header, indeps_n)
         elif isinstance(source, tuple):
             headers, data, indeps = parselearningtable(source)
-        elif isinstance(source, str) and "lt.pkl.gz" in source:
+        elif isinstance(source, str) and "lt.pkl.gz" in source.lower():
             headers, data, indeps = parselearningtable(source)
-        else:
+        elif isinstance(source, str) and "mnist" in source.lower():
+            headers, data, indeps = parselearningtable(mnist_to_lt(source))
+        elif isinstance(source, str) and (".csv" or ".txt" in source.lower()):
             headers, data, indeps = parsecsv(source, header, indeps_n, sep, end)
+        else:
+            raise NotImplementedError("DataWrapper doesn't support supplied data source!")
 
         self.headers = headers
         self.data, self.indeps = data, indeps
