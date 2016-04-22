@@ -223,6 +223,10 @@ class Network:
     # ---- Private helper methods ----
 
     def _insert_encoder(self):
+        from ..Utility.cost import MSE
+        if not isinstance(self.cost, MSE) or self.cost is not MSE:
+            print("Chosen cost function not supported in autoencoding!\nAttention! Falling back to MSE!")
+            self.cost = MSE()
         self.layers[-1] = self.encoder
         print("Inserted encoder as output layer!")
 
@@ -254,3 +258,15 @@ class Network:
             print(chain)
         else:
             return chain
+
+    def dream(self, matrix):
+        """Reverse-feedforward"""
+        assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
+        assert all([(isinstance(layer.activation, Sigmoid)) or (layer.activation is Sigmoid)
+                    for layer in self.layers[1:]]), "Only Sigmoid is supported!"
+
+        from csxnet.nputils import logit
+
+        for layer in self.layers[-1:0:-1]:
+            matrix = logit(matrix.dot(layer.weights.T))
+        return matrix
