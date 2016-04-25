@@ -56,7 +56,6 @@ class ConvNetExplicit:
         cact = nnet.sigmoid(nnet.conv2d(inputs, cfilter))
         pact = T.reshape(
             max_pool_2d(cact, ds=(pool, pool), ignore_border=True),
-            # newshape=(m, nfilters * transd_pl[0] * transd_pl[1]))
             newshape=(m, fcfanin))
         fc1act = nnet.sigmoid(pact.dot(hf1cw))
         fc2act = nnet.sigmoid(fc1act.dot(hf2cw))
@@ -176,9 +175,9 @@ class ConvNetDynamic:
                 self.forward_pass_rules.append(layer.output(self.forward_pass_rules[-1]))
 
         def define_cost_and_prediction():
-            l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
+            l1 = T.sum([T.abs_(layer.weights).sum() for layer in self.layers])
             l1 *= self.lmbd1 / (self.data.N / 2)
-            l2 = sum([(layer.weights**2).sum() for layer in self.layers])
+            l2 = T.sum([(layer.weights**2).sum() for layer in self.layers])
             l2 *= self.lmbd2 / (self.data.N * 2)
 
             chain = "Cost: " + self.cost
@@ -191,15 +190,15 @@ class ConvNetDynamic:
                     reg += " + L2 reg."
                 else:
                     reg += " reg."
-            elif self.lmbd2:
+            if self.lmbd2:
                 reg += "L2 reg."
             self.architecture.append(chain + reg)
 
-            self.cost = \
+            cost = \
                 nnet.categorical_crossentropy(self.forward_pass_rules[-1], self.targets).sum() \
                     if self.cost.lower() == "xent" else \
                 ((self.targets - self.forward_pass_rules[-1]) ** 2).sum()
-            self.cost += l1 + l2
+            self.cost = cost + l1 + l2
 
             self.prediction = T.argmax(self.forward_pass_rules[-1], axis=1)
 
@@ -208,9 +207,9 @@ class ConvNetDynamic:
                 gradient = (self.eta / self.m) * theano.grad(self.cost, layer.weights)
                 self.update_rules.append((
                     layer.weights,
-                    layer.weights - (gradient + self.mu * layer.grads)
+                    layer.weights - gradient  # - layer.grads * self.mu
                 ))
-                layer.grads = gradient
+                # layer.grads = gradient
 
         add_output_layer()
         define_feedforward()
@@ -219,10 +218,8 @@ class ConvNetDynamic:
 
         self._train = theano.function(inputs=[self.inputs, self.targets, self.m],
                                       updates=self.update_rules,
-                                      name="_train"
-                                      # mode=theano.compile.MonitorMode(pre_func=inspect_inpt,
-                                      #                                 post_func=inspect_outpt)
-                                      )
+                                      name="_train")
+
         self._predict = theano.function(inputs=[self.inputs, self.targets],
                                         outputs=[self.cost, self.prediction],
                                         name="_predict")
