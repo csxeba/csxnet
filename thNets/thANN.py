@@ -282,10 +282,8 @@ class ThConvPoolLayer:
         self.pool = pool
 
     def output(self, inputs, mint):
-        cact = nnet.conv2d(inputs, self.weights)
-
-        pact = max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
-        return nnet.sigmoid(pact)
+        cact = nnet.sigmoid(nnet.conv2d(inputs, self.weights))
+        return max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
 
 
 class ThFCLayer:
