@@ -19,7 +19,7 @@ class ConvNetExplicit:
                  nfilters=1, cfshape=(5, 5), pool=2, hidden1=120, hidden2=60,
                  cost="MSE"):
 
-        assert cfshape[0] == cfshape[1], "Non-sqare filters are not <yet> supported!"
+        assert cfshape[0] == cfshape[1], "Non-square filters are not <yet> supported!"
 
         self.data = data
         self.age = 0
@@ -275,7 +275,7 @@ class ThConvPoolLayer:
 
         self.weights = theano.shared(
             (np.random.randn(*self.fshape)
-             / np.sqrt(fanin)).astype(floatX),
+            / np.sqrt(fanin)).astype(floatX),
             name="{}. ConvFilters".format(position)
         )
 
