@@ -1,33 +1,6 @@
 import numpy as np
 
 
-def save(obj, filename='autosave.bro'):
-    """Saves the brain/model/population to a .bro file in text format"""
-    import pickle
-    fl = open(filename, mode="wb")
-    pickle.dump(obj, fl)
-    fl.close()
-
-
-def load(filename):
-    """Loads a brain/model/population object from a previously saved file"""
-    if not filename:
-        import tkinter as tk
-        import tkinter.filedialog as tkfd
-        root = tk.Tk()
-        filename = tkfd.askopenfilename(filetypes=(
-            ("Brain objects", "*.bro"),
-            ("All files", "*.*")))
-        root.destroy()
-        del root, tkfd, tk
-
-    fl = open(filename, mode="rb")
-    import pickle
-    obj = pickle.load(fl)
-    fl.close()
-    return obj
-
-
 def outshape(inshape: tuple, fshape: tuple, stride: int):
     """Calculates the shape of an output matrix if a filter of shape
     <fshape> gets slided along a matrix of shape <inshape> with a
@@ -63,9 +36,14 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
 
 
 def ravel_to_matrix(A):
+    print("BrainForge utility <ravel_to_matrix()> is moved to csxnet.utilities")
     A = np.atleast_2d(A)
     A = A.reshape(A.shape[0], np.prod(A.shape[1:]))
     return A
+
+
+def l1term(eta, lmbd, N):
+    return (eta * lmbd) / N
 
 
 def l2term(eta, lmbd, N):

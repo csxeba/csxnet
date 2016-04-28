@@ -1,23 +1,25 @@
 import numpy as np
 
 
-class _ActivationFunctionBase:
+class _ActivationFunctionBase(object):
     def __call__(self, Z: np.ndarray): pass
 
     def __str__(self): return ""
 
-    def derivative(self, Z: np.ndarray): pass
+    @staticmethod
+    def derivative(Z: np.ndarray): pass
 
 
 class Sigmoid(_ActivationFunctionBase):
 
-    def __call__(self, Z):
+    def __call__(self, Z: np.ndarray):
         return np.divide(1.0, np.add(1, np.exp(-Z)))
 
     def __str__(self): return "sigmoid"
 
-    def derivative(self, Z):
-        return np.multiply(self(Z), np.subtract(1.0, self(Z)))
+    @staticmethod
+    def derivative(Z):
+        return np.multiply(Sigmoid()(Z), np.subtract(1.0, Sigmoid()(Z)))
 
 
 class FastSigmoid(_ActivationFunctionBase):
@@ -25,9 +27,10 @@ class FastSigmoid(_ActivationFunctionBase):
     def __call__(self, Z):
         return np.divide(Z, np.add(1, np.abs(Z)))
 
-    def __repr__(self): return "fast sigmoid"
+    def __str__(self): return "fast sigmoid"
 
-    def derivative(self, Z):
+    @staticmethod
+    def derivative(Z):
         return np.divide(1.0, np.add(np.abs(Z), 1.0)**2)
 
 
@@ -38,8 +41,9 @@ class Tanh(_ActivationFunctionBase):
 
     def __str__(self): return "tanh"
 
-    def derivative(self, Z):
-        return np.subtract(1.0, np.square(self(Z)))
+    @staticmethod
+    def derivative(Z):
+        return np.subtract(1.0, np.square(Tanh()(Z)))
 
 
 class Linear(_ActivationFunctionBase):
@@ -49,7 +53,8 @@ class Linear(_ActivationFunctionBase):
 
     def __str__(self): return "linear"
 
-    def derivative(self, Z):
+    @staticmethod
+    def derivative(Z):
         return np.ones_like(Z)
 
 
@@ -60,5 +65,6 @@ class ReL(_ActivationFunctionBase):
 
     def __str__(self): return "rectified linear"
 
-    def derivative(self, Z):
-        return np.greater(0.0, Z).astype(float)
+    @staticmethod
+    def derivative(Z):
+        return np.greater(0.0, Z).astype("float64")

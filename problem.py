@@ -10,6 +10,7 @@ from evolution import Population
 DATAROOT = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
 LTDIR = "learning_tables/"
 
+
 class Problem(Tk):
     def __init__(self):
         Tk.__init__(self)

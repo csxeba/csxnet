@@ -3,24 +3,42 @@
 import numpy as np
 
 
-class MSE:
+class _CostFnBase(object):
+
+    def __call__(self, outputs, targets): pass
+
+    def __str__(self): return ""
+
+    @staticmethod
+    def derivative(outputs, targets, excitations, activation): pass
+
+
+class MSE(_CostFnBase):
 
     def __call__(self, outputs, targets):
         return 0.5 * np.linalg.norm(outputs - targets) ** 2
 
-    def derivative(self, outputs, targets, excitations, activation):
+    @staticmethod
+    def derivative(outputs, targets, excitations, activation):
         return activation.derivative(excitations) * np.subtract(outputs, targets)
 
+    def __str__(self):
+        return "MSE"
 
-class Xent:
+
+class Xent(_CostFnBase):
 
     def __call__(self, outputs, targets):
         return np.sum(np.nan_to_num(
             np.subtract((0-targets) * np.log(outputs),
                         (1-targets) * np.log(1-outputs))))
 
-    def derivative(self, outputs, targets, excitations=None, activation=None):
+    @staticmethod
+    def derivative(outputs, targets, excitations=None, activation=None):
         return np.subtract(outputs, targets)
+
+    def __str__(self):
+        return "Xent"
 
 
 def mse(outputs, targets, excitations, activation_derivative):
