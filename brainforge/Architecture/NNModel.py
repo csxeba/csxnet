@@ -20,12 +20,13 @@ class Network:
         self.m = int()  # Batch size goes here
 
         self.layers = []
+        self.architecture = []
         self.layers.append(InputLayer(brain=self, inshape=self.inshape))
+        self.architecture.append("In: {}".format(self.inshape))
         self.predictor = None
         self.encoder = None
 
         self.finalized = False
-        self.architecture = []
 
         self.data = data
 
