@@ -237,11 +237,10 @@ class Network:
 
     # ---- Some utilities ----
 
-    def save(self):
+    def save(self, path):
         import pickle
-        import gzip
 
-        fl = gzip.open("brain_object.bro", mode="wb")
+        fl = open(path, mode="wb")
         pickle.dump(self, fl)
         fl.close()
 
