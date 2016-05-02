@@ -241,6 +241,7 @@ class Network:
         import pickle
 
         fl = open(path, mode="wb")
+        print("Saving brain object to", path)
         pickle.dump(self, fl)
         fl.close()
 
