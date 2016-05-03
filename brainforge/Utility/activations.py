@@ -63,7 +63,7 @@ class ReL(_ActivationFunctionBase):
     def __call__(self, Z):
         return np.maximum(0.0, Z)
 
-    def __str__(self): return "rectified linear"
+    def __str__(self): return "relu"
 
     @staticmethod
     def derivative(Z):
