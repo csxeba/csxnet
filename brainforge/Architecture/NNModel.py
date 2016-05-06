@@ -1,9 +1,6 @@
 """CNN implementation"""
-import warnings
-
 from ..Layerdef.Layers import *
 from ..Utility.activations import *
-from ..Utility.utility import ravel_to_matrix as rtm
 
 
 class Network:

@@ -16,6 +16,8 @@ class _Data:
         self.pca = None
         self.N = 0
         self.type = None
+        self.mean = 0
+        self.std = 0
 
         if isinstance(source, np.ndarray):
             headers, data, indeps = parsearray(source, header, indeps_n)
@@ -79,8 +81,10 @@ class _Data:
         self.data = self.pca.transform(self.data)
 
     def standardize(self):
-        self.data -= np.mean(self.data, axis=0)
-        self.data /= np.std(self.data, axis=0)
+        self.mean = np.mean(self.data, axis=0)
+        self.std = np.std(self.data, axis=0)
+        self.data -= self.mean
+        self.data /= self.std
 
     def split_data(self):
         dat, ind = shuffle((self.data, self.indeps))

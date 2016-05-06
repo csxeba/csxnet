@@ -23,6 +23,7 @@ class ConvNetExplicit:
 
         self.data = data
         self.age = 0
+        self.eta = eta
 
         channels, x, y = data.learning[0].shape
         cfiltershape = (nfilters, channels, cfshape[0], cfshape[1])
@@ -39,6 +40,7 @@ class ConvNetExplicit:
         targets = T.matrix("targets")
         m = T.scalar("m", dtype="int32")
         m_ = m.astype("float32")
+        eta = T.scalar("Eta")
 
         cfilter = theano.shared((np.random.randn(*cfiltershape) /
                                 np.sqrt(np.prod(cfanin))).astype(floatX),
@@ -79,7 +81,7 @@ class ConvNetExplicit:
 
         prediction = T.argmax(outact, axis=1)
 
-        update_cfilter = cfilter - (eta / m_) * T.grad(cost, cfilter)
+        update_cfilter = cfilter - (self.eta / m_) * T.grad(cost, cfilter)
 
         update_hf1cw = hf1cw - (eta / m_) * T.grad(cost, hf1cw)
 
@@ -87,28 +89,28 @@ class ConvNetExplicit:
 
         update_outw = outw - (eta / m_) * T.grad(cost, outw)
 
-        self._train = theano.function(inputs=[inputs, targets, m],
-                                      updates=[(cfilter, update_cfilter),
+        self._fit = theano.function(inputs=[inputs, targets, m, eta],
+                                    updates=[(cfilter, update_cfilter),
                                                (hf1cw, update_hf1cw),
                                                (hf2cw, update_hf2cw),
                                                (outw, update_outw)],
-                                      name="_train")
+                                    name="_train")
 
-        self._predict = theano.function(inputs=[inputs, targets, m],
-                                        outputs=[cost, prediction],
-                                        name="_predict")
+        self.predict = theano.function(inputs=[inputs, targets, m],
+                                       outputs=[cost, prediction],
+                                       name="_predict")
 
     def learn(self, batch_size):
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
             m = questions.shape[0]
-            self._train(questions, targets, m)
+            self._fit(questions, targets, m, self.eta)
         self.age += 1
 
     def evaluate(self, on="testing"):
         m = self.data.n_testing
         tab = self.data.table(on)
         qst, idp = tab[0][:m], tab[1][:m]
-        cost, pred = self._predict(qst, idp, m)
+        cost, pred = self.predict(qst, idp, m)
         acc = np.mean(np.equal(np.argmax(idp, axis=1), pred))
         return cost, acc
 
