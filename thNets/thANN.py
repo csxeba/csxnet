@@ -53,12 +53,20 @@ class ConvNetExplicit:
                              np.sqrt(hidden2)).astype(floatX),
                              name="OutputWeights")
 
-        cact = nnet.sigmoid(nnet.conv2d(inputs, cfilter))
+        # cact = nnet.sigmoid(nnet.conv2d(inputs, cfilter))
+        # pact = T.reshape(
+        #     max_pool_2d(cact, ds=(pool, pool), ignore_border=True),
+        #     newshape=(m, fcfanin))
+        # fc1act = nnet.sigmoid(pact.dot(hf1cw))
+        # fc2act = nnet.sigmoid(fc1act.dot(hf2cw))
+
+        cact = T.tanh(nnet.conv2d(inputs, cfilter))
         pact = T.reshape(
             max_pool_2d(cact, ds=(pool, pool), ignore_border=True),
             newshape=(m, fcfanin))
-        fc1act = nnet.sigmoid(pact.dot(hf1cw))
-        fc2act = nnet.sigmoid(fc1act.dot(hf2cw))
+        fc1act = T.tanh(pact.dot(hf1cw))
+        fc2act = T.tanh(fc1act.dot(hf2cw))
+
         outact = nnet.softmax(fc2act.dot(outw))
 
         l1 = sum(((cfilter**2).sum(), (hf1cw**2).sum(), (hf2cw**2).sum(), (outw**2).sum()))
@@ -66,8 +74,7 @@ class ConvNetExplicit:
         l2 = sum((T.abs_(cfilter).sum(), T.abs_(hf1cw).sum(), T.abs_(hf2cw).sum(), T.abs_(outw).sum()))
         l2 *= lmbd2 / (self.data.N * 2)
 
-        cost = T.exp2(targets - outact).sum() if cost.lower() == "mse" else \
-            nnet.categorical_crossentropy(outact, targets).sum()
+        cost = nnet.categorical_crossentropy(outact, targets).sum()
         cost += l1 + l2
 
         prediction = T.argmax(outact, axis=1)

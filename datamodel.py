@@ -1,7 +1,7 @@
 import numpy as np
 
-YAY = 0.8
-NAY = 0.2
+YAY = 1.0
+NAY = 0.0
 REAL = np.float32
 
 
