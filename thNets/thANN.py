@@ -107,7 +107,8 @@ class ConvNetExplicit:
         self.age += 1
 
     def evaluate(self, on="testing"):
-        m = self.data.n_testing
+        # m = self.data.n_testing
+        m = 500
         tab = self.data.table(on)
         qst, idp = tab[0][:m], tab[1][:m]
         cost, pred = self.predict(qst, idp, m)
