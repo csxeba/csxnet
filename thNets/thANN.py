@@ -132,9 +132,7 @@ class ConvNetDynamic:
         self.data = data
         self.fanin, self.outputs = data.neurons_required()
         self.eta = eta
-        self.lmbd1 = lmbd1
-        self.lmbd2 = lmbd2
-        self.mu = mu
+        self.lmbd1, self.lmbd2 = lmbd1, lmbd2
 
         self.layers = []
 
@@ -188,26 +186,28 @@ class ConvNetDynamic:
             return forward_pass_rules[-1]
 
         def define_cost_and_prediction():
-            # l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
-            # l1 *= self.lmbd1 / (self.data.N / 2)
-            # l2 = sum([T.exp2(layer.weights).sum() for layer in self.layers])
-            # l2 *= self.lmbd2 / (self.data.N * 2)
-            #
+            # Define regularization terms
+            l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
+            l1 *= self.lmbd1 / (self.data.N / 2)
+            l2 = sum([T.exp2(layer.weights).sum() for layer in self.layers])
+            l2 *= self.lmbd2 / (self.data.N * 2)
+
             # Build string for architecture display
             chain = "Cost: " + self.cost
             reg = ""
-            # if self.lmbd1 or self.lmbd2:
-            #     reg += " + "
-            # if self.lmbd1:
-            #     reg += "L1"
-            #     if self.lmbd2:
-            #         reg += " + L2 reg."
-            #     else:
-            #         reg += " reg."
-            # if self.lmbd2:
-            #     reg += "L2 reg."
+            if self.lmbd1 or self.lmbd2:
+                reg += " + "
+            if self.lmbd1:
+                reg += "L1"
+                if self.lmbd2:
+                    reg += " + L2 reg."
+                else:
+                    reg += " reg."
+            if self.lmbd2:
+                reg += "L2 reg."
             self.architecture.append(chain + reg)
 
+            # Define cost function
             if self.cost.lower() == "xent":
                 cost = nnet.categorical_crossentropy(
                     coding_dist=self.output,
@@ -217,7 +217,7 @@ class ConvNetDynamic:
             else:
                 raise RuntimeError("Cost function {} not supported!".format(self.cost))
 
-            # cost += l1 + l2
+            cost = cost + l1 + l2
             prediction = T.argmax(self.output, axis=1)
 
             return cost, prediction
@@ -229,14 +229,19 @@ class ConvNetDynamic:
                     layer.weights,
                     layer.weights - (self.eta / self.m) * T.grad(self.cost, layer.weights)
                 ))
+                rules.append((
+                    layer.biases,
+                    layer.biases - (self.eta / self.m) * T.grad(self.cost, layer.biases)
+                ))
             return rules
 
         self.layers.append(define_output_layer())
         self.output = define_feedforward()
         self.cost, self.prediction = define_cost_and_prediction()
+        updates = define_update_rules()
 
         self._fit = theano.function(inputs=[self.inputs, self.targets, self.m],
-                                    updates=define_update_rules(),
+                                    updates=updates,
                                     name="_fit")
 
         self._evaluate = theano.function(inputs=[self.inputs, self.targets, self.m],
@@ -298,16 +303,19 @@ class ThConvPoolLayer(_ThLayerBase):
         self.fshape = filters, channel, conv, conv
 
         self.weights = theano.shared(
-            (np.random.randn(*self.fshape)
-            / np.sqrt(self.fanin)).astype(floatX),
+            (np.random.randn(*self.fshape) /
+             np.sqrt(self.fanin)).astype(floatX),
             name="{}. ConvFilters".format(position)
         )
+
+        self.biases = theano.shared(np.zeros((filters,), dtype=floatX))
 
         self.pool = pool
 
     def output(self, inputs, mint):
-        cact = T.tanh(nnet.conv2d(inputs, self.weights))
-        return max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
+        cact = nnet.conv2d(inputs, self.weights)
+        pact = max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
+        return T.tanh(pact + self.biases.dimshuffle("x", 0, "x", "x"))
 
 
 class ThFCLayer(_ThLayerBase):
@@ -317,10 +325,11 @@ class ThFCLayer(_ThLayerBase):
         self.activation = {"sigmoid": nnet.sigmoid, "tanh": T.tanh, "softmax": nnet.softmax}[activation.lower()]
         self.weights = theano.shared((np.random.randn(self.fanin, neurons) / self.fanin).astype(floatX),
                                      name="{}. FCweights".format(position))
+        self.biases = theano.shared((np.zeros((neurons,), dtype=floatX)))
 
     def output(self, inputs, mint):
         i = T.reshape(inputs, (mint, self.fanin))
-        return self.activation(i.dot(self.weights))
+        return self.activation(i.dot(self.weights) + self.biases)
 
 
 class ThOutputLayer(ThFCLayer):
