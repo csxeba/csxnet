@@ -182,7 +182,7 @@ class Network:
         """
         Coordinates prediction (feedforwarding outside the learning phase)
 
-        The layerwise implementations of <predict> don't have any side-effects
+        The layerwise implementations of <_evaluate> don't have any side-effects
         so prediction is a candidate for parallelization.
 
         :param questions: numpy.ndarray representing a batch of inputs

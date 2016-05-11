@@ -424,7 +424,7 @@ def sgd_optimization_mnist(learning_rate=0.13, n_epochs=1000,
 def predict():
     """
     An example of how to load a trained model and use it
-    to predict labels.
+    to _evaluate labels.
     """
 
     # load the saved model

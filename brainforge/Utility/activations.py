@@ -68,3 +68,15 @@ class ReL(_ActivationFunctionBase):
     @staticmethod
     def derivative(Z):
         return np.greater(0.0, Z).astype("float64")
+
+
+class SoftMax(_ActivationFunctionBase):
+
+    def __call__(self, Z):
+        return np.divide(Z, np.sum(Z, axis=0))
+
+    def __str__(self): return  "softmax"
+
+    @staticmethod
+    def derivative(Z):
+        raise NotImplementedError("Sorry for this...")
