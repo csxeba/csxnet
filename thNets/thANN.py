@@ -223,17 +223,9 @@ class ConvNetDynamic:
             return cost, prediction
 
         def define_update_rules():
-            rules = []
-            for layer in self.layers:
-                rules.append((
-                    layer.weights,
-                    layer.weights - (self.eta / self.m) * T.grad(self.cost, layer.weights)
-                ))
-                rules.append((
-                    layer.biases,
-                    layer.biases - (self.eta / self.m) * T.grad(self.cost, layer.biases)
-                ))
-            return rules
+            return [(param, param - (self.eta / self.m) * T.grad(self.cost, param))
+                    for param in [layer.weights for layer in self.layers] +
+                                 [layer.biases for layer in self.layers]]
 
         self.layers.append(define_output_layer())
         self.output = define_feedforward()
@@ -341,3 +333,32 @@ class ThDropoutLayer(ThFCLayer):
     def __init__(self, neurons, inshape, dropchance, position, activation="sigmoid"):
         ThFCLayer.__init__(neurons, inshape, position, activation)
         print("Dropout not implemented yet, falling back to ThFCLayer!")
+
+
+class _CostBase:
+    def __init__(self, graph, l1_term, l2_term):
+        self.graph = graph + l1_term + l2_term
+
+    def __call__(self, outputs, targets):
+        return self.graph(outputs, targets)
+
+    def __grad__(self, wrt):
+        return T.grad(self.graph, wrt=wrt)
+
+
+class Xent_cost(_CostBase):
+    def __init__(self, outputs, targets, l1_term, l2_term):
+        graph = nnet.categorical_crossentropy(outputs, targets)
+        _CostBase.__init__(self, graph, l1_term, l2_term)
+
+
+class MSE_cost(_CostBase):
+    def __init__(self, outputs, targets, l1_term, l2_term):
+        graph = T.exp2(outputs - targets)
+        _CostBase.__init__(self, graph, l1_term, l2_term)
+
+
+class NLL_cost(_CostBase):
+    def __init__(self, outputs, targets, l1_term, l2_term):
+        graph = -T.sum(T.log(outputs)[T.arange(targets.shape[0]), targets])
+        _CostBase.__init__(self, graph, l1_term, l2_term)
