@@ -317,11 +317,19 @@ class ThFCLayer(_ThLayerBase):
         self.activation = {"sigmoid": nnet.sigmoid, "tanh": T.tanh, "softmax": nnet.softmax}[activation.lower()]
         self.weights = theano.shared((np.random.randn(self.fanin, neurons) / self.fanin).astype(floatX),
                                      name="{}. FCweights".format(position))
-        self.biases = theano.shared((np.zeros((neurons,), dtype=floatX)))
+        self.biases = theano.shared((np.zeros((neurons,), dtype=floatX)),
+                                    name="{}. FCbiases".format(self.position))
 
     def output(self, inputs, mint):
         i = T.reshape(inputs, (mint, self.fanin))
         return self.activation(i.dot(self.weights) + self.biases)
+
+
+class ThRLayer(ThFCLayer):
+    def __init__(self, neurons, inshape, position, activation="sigmoid"):
+        ThFCLayer.__init__(self, neurons, inshape, position, activation)
+        self.rweights = theano.shared((np.random.randn(neurons, neurons) / neurons).astype(floatX),
+                                      name="{}. Rweights".format(position))
 
 
 class ThOutputLayer(ThFCLayer):
@@ -342,7 +350,7 @@ class _CostBase:
     def __call__(self, outputs, targets):
         return self.graph(outputs, targets)
 
-    def __grad__(self, wrt):
+    def derivative(self, wrt):
         return T.grad(self.graph, wrt=wrt)
 
 

@@ -1,9 +1,7 @@
-import multiprocessing as mp
-
 import numpy as np
 from scipy.ndimage import convolve
 
-from ..Layerdef._LayerBase import _VecLayer, _FCLayer
+from ._LayerBase import _VecLayer, _FCLayer
 from ..Utility.activations import Linear
 from ..Utility.operations import maxpool
 from ..Utility.utility import l2term, l1term
@@ -141,29 +139,6 @@ class ConvLayer(_VecLayer):
         self.output = self.activation(self.excitation)
         return self.output
 
-    def mp_feedforward(self, questions: np.ndarray):
-        """
-        Convolves the inputs with filters. Used in the learning phase.
-
-        :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
-        :return: numpy.ndarray: outputs convolved with filters. Shape should be (lessons, filters, cx, cy)
-        """
-
-        self.inputs = questions
-        jobs = mp.cpu_count()
-        mapool = mp.Pool(jobs)
-        chunks = np.array_split(questions, jobs)
-        recfields = mapool.map(self._getrfields, chunks)
-        mapool.close()
-        mapool.join()
-        np.concatenate(recfields)
-
-        self.excitation = np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1)
-                                       ).reshape([self.brain.m] + list(self.outshape))
-        self.output = self.activation(self.excitation)
-
-        return self.output
-
     def predict(self, questions: np.ndarray):
         """
         Convolves the inputs with filters.
@@ -225,7 +200,6 @@ class ConvLayer(_VecLayer):
                     cvm_old = convolve(self.inputs[l][j], self.error[l][i], self.stride)
                     cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
                     eq = np.equal(cvm, cvm_old)
-                    # assert np.sum(eq) == eq.size
                     delta[i, j, ...] += cvm  # Averaging over lessons in the batch
 
         # L2 regularization aka weight decay

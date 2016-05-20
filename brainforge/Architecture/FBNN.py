@@ -1,5 +1,4 @@
-"""This is not a real Recurrent Neural Network!
-This is a FFNN with some feedback capabilities implemented."""
+"""This is a FFNN with some feedback capabilities implemented."""
 
 from .FFNN import *
 from ..Layerdef.Neurons import Neuron
