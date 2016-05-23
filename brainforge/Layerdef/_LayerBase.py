@@ -15,17 +15,17 @@ class _LayerBase(object):
         self.position = position
         self.activation = activation()
 
-    def feedforward(self, stimuli): pass
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: pass
 
-    def predict(self, stimuli): pass
+    def predict(self, stimuli: np.ndarray) -> np.ndarray: pass
 
-    def backpropagation(self): pass
+    def backpropagation(self) -> np.ndarray: pass
 
-    def weight_update(self): pass
+    def weight_update(self) -> None: pass
 
-    def receive_error(self, error_vector): pass
+    def receive_error(self, error_vector: np.ndarray) -> None: pass
 
-    def shuffle(self): pass
+    def shuffle(self) -> None: pass
 
 
 class _VecLayer(_LayerBase):

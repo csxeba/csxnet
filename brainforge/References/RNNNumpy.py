@@ -12,7 +12,7 @@ class RNNNumpy:
         """
         :int word_dim: The size of the vocabulary
         :int hidden_dim: hidden layer size
-        :int bptt_truncate: "explain cometh laitor.."
+        :int time_truncate: "explain cometh laitor.."
         """
 
         self.word_dim = word_dim
