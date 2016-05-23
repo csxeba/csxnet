@@ -87,7 +87,7 @@ class PoolLayer(_VecLayer):
                     deltas[l, z, start0:end0, start1:end1] += bpfilter * vec[i]
 
         prev = self.brain.layers[self.position-1]
-        return deltas * prev.activation.derivative(prev.excitation)
+        return deltas * prev.activation.derivative(prev.output)
 
     def receive_error(self, error_matrix):
         """
@@ -173,7 +173,7 @@ class ConvLayer(_VecLayer):
                     np.add(deltas[..., start0:end0, start1:end1], diff,
                            out=deltas[..., start0:end0, start1:end1])
         prev = self.brain.layers[self.position-1]
-        return deltas * prev.activation.derivative(prev.excitation)
+        return deltas * prev.activation.derivative(prev.output)
 
     def receive_error(self, error_matrix: np.ndarray):
         """
@@ -266,7 +266,7 @@ class FFLayer(_FCLayer):
         prev = self.brain.layers[self.position-1]
         posh = [self.error.shape[0]] + list(prev.outshape)
         deltas = np.dot(self.error, self.weights.T).reshape(posh)
-        return deltas * prev.activation.derivative(prev.excitation)
+        return deltas * prev.activation.derivative(prev.output)
 
     def weight_update(self):
         """
@@ -328,7 +328,7 @@ class DropOut(FFLayer):
         prev = self.brain.layers[self.position - 1]
         posh = [self.error.shape[0]] + list(prev.outshape)
         deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
-        return deltas * prev.activation.derivative(prev.excitation)
+        return deltas * prev.activation.derivative(prev.output)
 
     def weight_update(self):
         # Apply L2 regularization, aka weight decay

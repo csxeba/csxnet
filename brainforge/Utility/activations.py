@@ -18,20 +18,8 @@ class Sigmoid(_ActivationFunctionBase):
     def __str__(self): return "sigmoid"
 
     @staticmethod
-    def derivative(Z):
-        return np.multiply(Sigmoid()(Z), np.subtract(1.0, Sigmoid()(Z)))
-
-
-class FastSigmoid(_ActivationFunctionBase):
-
-    def __call__(self, Z):
-        return np.divide(Z, np.add(1, np.abs(Z)))
-
-    def __str__(self): return "fast sigmoid"
-
-    @staticmethod
-    def derivative(Z):
-        return np.divide(1.0, np.add(np.abs(Z), 1.0)**2)
+    def derivative(A):
+        return np.multiply(A, np.subtract(1.0, A))
 
 
 class Tanh(_ActivationFunctionBase):
@@ -42,8 +30,8 @@ class Tanh(_ActivationFunctionBase):
     def __str__(self): return "tanh"
 
     @staticmethod
-    def derivative(Z):
-        return np.subtract(1.0, np.square(Tanh()(Z)))
+    def derivative(A):
+        return np.subtract(1.0, np.square(A))
 
 
 class Linear(_ActivationFunctionBase):
@@ -66,8 +54,8 @@ class ReL(_ActivationFunctionBase):
     def __str__(self): return "relu"
 
     @staticmethod
-    def derivative(Z):
-        return np.greater(0.0, Z).astype("float64")
+    def derivative(A):
+        return np.greater(0.0, A).astype("float32")
 
 
 class SoftMax(_ActivationFunctionBase):
@@ -75,8 +63,8 @@ class SoftMax(_ActivationFunctionBase):
     def __call__(self, Z):
         return np.divide(Z, np.sum(Z, axis=0))
 
-    def __str__(self): return  "softmax"
+    def __str__(self): return "softmax"
 
     @staticmethod
-    def derivative(Z):
+    def derivative(A):
         raise NotImplementedError("Sorry for this...")
