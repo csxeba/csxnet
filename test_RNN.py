@@ -33,7 +33,7 @@ sentence_end_token = "SENTENCE_END"
 
 # Read the data and append SENTENCE_START and SENTENCE_END tokens
 print("Reading CSV file...")
-with open('data/reddit-comments-2015-08.csv', 'rb') as f:
+with open('data/reddit.csv', 'rb') as f:
     reader = csv.reader(f, skipinitialspace=True)
     reader.next()
     # Split full comments into sentences

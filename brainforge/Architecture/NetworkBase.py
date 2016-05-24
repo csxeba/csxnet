@@ -2,7 +2,7 @@ import abc
 
 import numpy as np
 
-import csxnet.datamodel._Data as DataWrapper
+from csxnet.datamodel import _Data as DataWrapper
 
 
 class NeuralNetworkBase(abc.ABC):
