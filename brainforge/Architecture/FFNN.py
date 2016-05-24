@@ -16,10 +16,11 @@ This program is free software: you can redistribute it and/or modify it under
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
+
 import random
 import math
 
-from .NNModel import Network
+from .NNModel import FFNN
 from ..Utility.activations import *
 from ..Utility.cost import Xent
 
@@ -100,29 +101,8 @@ class FFNeuralBrain:
         return 1 / (1 + math.exp(-z))
 
 
-class FFLayerBrain(Network):
-    """
-    Layerwise representation of a Feed Forward Neural Network
-
-    Learning rate is given by the keyword argument <rate>.
-    The neural network architecture is given by <*layout> in the form of
-    inputs, hiddens, outputs. Multiple hidden layers may be defined.
-    """
-
+class FFLayerBrain(FFNN):
+    """This was left here for compatibility purposes"""
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
                  cost=Xent, activation=Sigmoid):
-        Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
-
-        if isinstance(hiddens, int):
-            hiddens = (hiddens,)
-
-        self.architecture = "FFNN"
-        self.layout = tuple(list(self.layers[0].outshape) + list(hiddens) + [self.outsize])
-
-        for neu in hiddens:
-            self.add_fc(neurons=neu, activation=activation)
-        self.finalize_architecture(activation=activation)
-
-    def show(self):
-        """Prints myData about the brain object"""
-        print("Brain object with layout", self.layout)
+        FFNN.__init__(self, hiddens, data, eta, lmbd1, lmbd2, mu, cost, activation)

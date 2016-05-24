@@ -3,7 +3,7 @@ import numpy as np
 
 def outshape(inshape: tuple, fshape: tuple, stride: int):
     """Calculates the shape of an output matrix if a filter of shape
-    <fshape> gets slided along a matrix of shape <inshape> with a
+    <fshape> gets slided along a matrix of shape <fanin> with a
     stride of <stride>.
     Returns x, y sizes of the output matrix"""
     output = [int((x - ins) / stride) + 1 if (x - ins) % stride == 0 else "NaN"
@@ -15,7 +15,7 @@ def outshape(inshape: tuple, fshape: tuple, stride: int):
 
 def calcsteps(inshape: tuple, fshape: tuple, stride: int):
     """Calculates the coordinates required to slide
-    a filter of shape <fshape> along a matrix of shape <inshape>
+    a filter of shape <fshape> along a matrix of shape <fanin>
     with a stride of <stride>.
     Returns a list of coordinates"""
     xsteps, ysteps = outshape(inshape, fshape, stride)

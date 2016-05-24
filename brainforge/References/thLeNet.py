@@ -237,7 +237,7 @@ def evaluate_lenet5(learning_rate=0.1, n_epochs=200,
     # create a list of all model parameters to be fit by gradient descent
     params = layer3.params + layer2.params + layer1.params + layer0.params
 
-    # create a list of gradients for all model parameters
+    # create a list of _grad_weights for all model parameters
     grads = T.grad(cost, params)
 
     # train_model is a function that updates the model parameters by

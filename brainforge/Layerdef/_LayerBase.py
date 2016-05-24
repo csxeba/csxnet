@@ -2,6 +2,7 @@
 Abstract base classes for the layer implementations.
 Why did I create these? No idea...
 """
+import abc
 
 import numpy as np
 
@@ -45,7 +46,6 @@ class _VecLayer(_LayerBase):
         self.outshape = outshape(inshape, fshape, stride)
 
         self.inputs = np.zeros(inshape)
-        self.excitation = np.zeros(self.outshape)
         self.output = np.zeros(self.outshape)
         self.error = np.zeros(self.outshape)
 
@@ -61,6 +61,5 @@ class _FCLayer(_LayerBase):
         self.outshape = (neurons,)
         self.inputs = None
 
-        self.excitation = np.zeros((neurons,))
         self.output = np.zeros((neurons,))
         self.error = np.zeros((neurons,))

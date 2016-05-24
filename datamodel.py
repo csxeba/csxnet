@@ -94,6 +94,9 @@ class _Data:
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
 
+    def neurons_required(self):
+        pass
+
 
 class CData(_Data):
     """

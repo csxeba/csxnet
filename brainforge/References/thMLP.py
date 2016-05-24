@@ -291,7 +291,7 @@ def run_mlp(learning_rate=0.5, L1_reg=0.00, L2_reg=5.0, n_epochs=30,
 
     # start-snippet-5
     # compute the gradient of cost with respect to theta (sotred in params)
-    # the resulting gradients will be stored in a list gparams
+    # the resulting _grad_weights will be stored in a list gparams
     gparams = [T.grad(cost, param) for param in classifier.params]
 
     # specify how to update the parameters of the model as a list of

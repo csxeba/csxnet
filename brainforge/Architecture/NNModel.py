@@ -1,64 +1,62 @@
 """CNN implementation"""
+from .NetworkBase import NeuralNetworkBase
 from ..Layerdef.Layers import *
 from ..Utility.activations import *
+from ..Utility.cost import *
 
 
-class Network:
+class Network(NeuralNetworkBase):
     def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost: callable):
 
-        self.cost = cost()
+        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
+
         self.error = float()
-        self.eta = eta
-        self.lmbd1 = lmbd1
-        self.lmbd2 = lmbd2
-        self.mu = mu
-        self.inshape, self.outsize = data.neurons_required()
-        self.N = data.N  # Number of training inputs
         self.m = int()  # Batch size goes here
 
-        self.layers = []
-        self.architecture = []
-        self.layers.append(InputLayer(brain=self, inshape=self.inshape))
-        self.architecture.append("In: {}".format(self.inshape))
+        self.layers.append(InputLayer(brain=self, inshape=self.fanin))
+        self.architecture.append("In: {}".format(self.fanin))
         self.predictor = None
         self.encoder = None
 
         self.finalized = False
 
-        self.data = data
-
-        self.age = 0
-
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=Sigmoid):
-        fshape = [self.inshape[0]] + list(fshape)
+    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=Tanh):
+        fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
         self.layers.append(ConvLayer(*args))
         self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation())[:4]))
-        # brain, fshape, inshape, num_filters, stride, position, activation="sigmoid"
+        # brain, fshape, fanin, num_filters, stride, position, activation="sigmoid"
 
     def add_pool(self, pool=2):
         args = (self, self.layers[-1].outshape, (pool, pool), pool, len(self.layers))
         self.layers.append(PoolLayer(*args))
         self.architecture.append("{} Pool".format(pool))
-        # brain, inshape, fshape, stride, position
+        # brain, fanin, fshape, stride, position
 
-    def add_fc(self, neurons, activation=Sigmoid):
+    def add_fc(self, neurons, activation=Tanh):
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
         self.layers.append(FFLayer(*args))
         self.architecture.append("{} FC: {}".format(neurons, str(activation())[:4]))
         # brain, inputs, neurons, position, activation
 
-    def add_drop(self, neurons, dropchance=0.25, activation=Sigmoid):
+    def add_drop(self, neurons, dropchance=0.25, activation=Tanh):
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation())[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
+    def add_rec(self, neurons, time_truncate=5, activation=Tanh):
+        inpts = np.prod(self.layers[-1].outshape)
+        args = self, inpts, neurons, time_truncate, len(self.layers), activation
+        self.layers.append(RLayer(*args))
+        self.architecture.append("{} RecL(time={}): {}".format(neurons, time_truncate, activation[:4]))
+        # brain, inputs, neurons, time_truncate, position, activation
+
     def finalize_architecture(self, activation=Sigmoid):
-        fanin = np.prod(self.inshape)
+        fanin = np.prod(self.fanin)
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
         eargs = (self, np.prod(self.layers[-1].outshape), fanin, len(self.layers), activation)
         self.predictor = FFLayer(*pargs)
@@ -69,7 +67,7 @@ class Network:
 
     # ---- Methods for model fitting ----
 
-    def learn(self, batch_size: int):
+    def learn(self, batch_size):
         if not self.finalized:
             raise RuntimeError("Architecture not finalized!")
         if self.layers[-1] is not self.predictor:
@@ -80,7 +78,7 @@ class Network:
 
         self.age += 1
 
-    def autoencode(self, batch_size: int):
+    def autoencode(self, batch_size):
         """
         Coordinates the autoencoding of the myData
 
@@ -96,7 +94,7 @@ class Network:
             self.m = batch[0].shape[0]
             self._fit((batch[0], ravtm(batch[0])))
 
-    def new_autoencode(self, batches: int, batch_size: int):
+    def new_autoencode(self, batches, batch_size):
 
         def sanity_check():
             if not self.finalized:
@@ -178,7 +176,7 @@ class Network:
 
     # ---- Methods for forward propagation ----
 
-    def predict(self, questions: np.ndarray):
+    def predict(self, questions):
         """
         Coordinates prediction (feedforwarding outside the learning phase)
 
@@ -195,16 +193,6 @@ class Network:
         else:
             return questions
 
-    def _revaluate(self, preds, on):
-        d = self.data
-        m = d.n_testing
-        ideps = {"d": d.indeps, "l": d.lindeps, "t": d.tindeps}[on[0]][:m]
-        return np.mean(np.sqrt((d.upscale(preds) - d.upscale(ideps))**2))
-
-    def _cevaluate(self, preds, on):
-        ideps = self.data.dummycode(on)
-        return np.mean(np.equal(ideps, preds))
-
     def evaluate(self, on="testing"):
         """
         Calculates the network's prediction accuracy.
@@ -212,10 +200,20 @@ class Network:
         :param on: cross-validation is implemented, dataset can be chosen here
         :return: rate of right answers
         """
-        evalfn = self._revaluate if self.data.type == "regression" else self._cevaluate
+
+        def revaluate(preds):
+            ideps = {"d": d.indeps, "l": d.lindeps, "t": d.tindeps}[on[0]][:m]
+            return np.mean(np.sqrt((d.upscale(preds) - d.upscale(ideps)) ** 2))
+
+        def cevaluate(preds):
+            ideps = self.data.dummycode(on)
+            return np.mean(np.equal(ideps, preds))
+
         m = self.data.n_testing
-        questions = {"d": self.data.data[:m], "l": self.data.learning[:m], "t": self.data.testing}[on[0]]
-        result = evalfn(self.predict(questions), on)
+        d = self.data
+        evalfn = revaluate if d.type == "regression" else cevaluate
+        questions = {"d": d.data[:m], "l": d.learning[:m], "t": d.testing}[on[0]]
+        result = evalfn(self.predict(questions))
         return result
 
     # ---- Private helper methods ----
@@ -265,6 +263,47 @@ class Network:
 
         from csxnet.nputils import logit
 
+        print("Warning! Network.dream() is highly experimental and possibly buggy!")
+
         for layer in self.layers[-1:0:-1]:
             matrix = logit(matrix.dot(layer.weights.T))
         return matrix
+
+
+class FFNN(Network):
+    """
+    Layerwise representation of a Feed Forward Neural Network
+
+    Learning rate is given by the keyword argument <rate>.
+    The neural network architecture is given by <*layout> in the form of
+    inputs, hiddens, outsize. Multiple hidden layers may be defined.
+    """
+
+    def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
+                 cost=Xent, activation=Tanh):
+        Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
+
+        if isinstance(hiddens, int):
+            hiddens = (hiddens,)
+
+        self.layout = tuple(list(self.layers[0].outshape) + list(hiddens) + [self.outsize])
+
+        for neu in hiddens:
+            self.add_fc(neurons=neu, activation=activation)
+        self.finalize_architecture(activation=Sigmoid)
+
+
+class RNN(Network):
+    def __init__(self, hiddens, data, eta, cost=Xent, activation=Tanh):
+        Network.__init__(self, data, eta, 0.0, 0.0, 0.0, cost)
+
+        if isinstance(hiddens, int):
+            hiddens = (hiddens,)
+
+        for neu in hiddens:
+            self.add_rec(neu, activation=activation)
+
+        self.finalize_architecture(activation=Sigmoid)
+
+    def learn(self, time):
+        Network.learn(self, time)

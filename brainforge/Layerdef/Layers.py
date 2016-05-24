@@ -16,14 +16,14 @@ class PoolLayer(_VecLayer):
                            activation=Linear)
         self.outshape = (self.inshape[0], self.outshape[0], self.outshape[1])
         self.backpass_filter = None
-        print("<PoolLayer> created with inshape {} and outshape {} @ position {}"
+        print("<PoolLayer> created with fanin {} and outshape {} @ position {}"
               .format(self.inshape, self.outshape, position))
 
     def feedforward(self, questions):
         """
         Implementation of a max pooling layer.
 
-        :param questions: numpy.ndarray, a batch of outputs from the previous layer
+        :param questions: numpy.ndarray, a batch of outsize from the previous layer
         :return: numpy.ndarray, max pooled batch
         """
 
@@ -109,7 +109,10 @@ class ConvLayer(_VecLayer):
         self.inputs = np.zeros(self.inshape)
         self.outshape = num_filters, self.outshape[0], self.outshape[1]
         self.filters = np.random.randn(num_filters, np.prod(fshape)) / np.sqrt(np.prod(inshape))
-        print("<ConvLayer> created with inshape {} and outshape {} @ position {}"
+        self.grad_filters = np.zeros_like(self.filters)
+        chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
+        raise RuntimeError(chain)
+        print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
               .format(self.inshape, self.outshape, position))
 
     def feedforward(self, questions):
@@ -123,7 +126,7 @@ class ConvLayer(_VecLayer):
         Convolves the inputs with filters. Used in the learning phase.
 
         :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
-        :return: numpy.ndarray: outputs convolved with filters. Shape should be (lessons, filters, cx, cy)
+        :return: numpy.ndarray: outsize convolved with filters. Shape should be (lessons, filters, cx, cy)
         """
         self.inputs = questions
 
@@ -186,7 +189,7 @@ class ConvLayer(_VecLayer):
 
     def weight_update(self):
         """
-        Updates convolutional filter weights with the calculated gradients.
+        Updates convolutional filter weights with the calculated _grad_weights.
 
         :return: None
         """
@@ -224,7 +227,8 @@ class FFLayer(_FCLayer):
                           activation=activation)
 
         self.weights = np.random.randn(inputs, neurons) / np.sqrt(inputs)
-        self.gradients = np.zeros_like(self.weights)
+        self._grad_weights = np.zeros_like(self.weights)
+        self._old_grads = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
         self.inputs = None
         self.N = 0  # current batch size
@@ -239,12 +243,8 @@ class FFLayer(_FCLayer):
         :return: numpy.ndarray: transformed matrix
         """
         self.inputs = ravtm(questions)
-        self.excitation = np.dot(self.inputs, self.weights) + self.biases
-        self.output = self.activation(self.excitation)
+        self.output = self.predict(questions)
         return self.output
-
-    def mp_feedforward(self, questions):
-        return self.feedforward(questions)
 
     def predict(self, questions):
         """
@@ -259,37 +259,44 @@ class FFLayer(_FCLayer):
 
     def backpropagation(self):
         """
-        Calculates the errors of the previous layer.
+        Backpropagates the errors.
+        Calculates gradients of the weights, then
+        returns the previous layer's error.
 
         :return: numpy.ndarray
         """
+        self._old_grads = np.copy(self._grad_weights)
+        self._grad_weights = np.dot(self.inputs.T, self.error) / self.brain.m
+
         prev = self.brain.layers[self.position-1]
         posh = [self.error.shape[0]] + list(prev.outshape)
-        deltas = np.dot(self.error, self.weights.T).reshape(posh)
-        return deltas * prev.activation.derivative(prev.output)
+        prev_error = np.dot(self.error, self.weights.T).reshape(posh)
+        prev_error *= prev.activation.derivative(prev.output)
+
+        return prev_error
 
     def weight_update(self):
         """
-        Updates the weight matrix with the calculated gradients
+        Performs Stochastic Gradient Descent by subtracting a portion of the
+        calculated gradients from the weights and biases.
 
         :return: None
         """
         # Apply L2 regularization, aka weight decay
-        gradients = np.dot(self.inputs.T, self.error) / self.brain.m
         l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
         l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
-
         if self.brain.lmbd2:
             self.weights *= l2
         if self.brain.lmbd1:
             self.weights -= l1 * np.sign(self.weights)
 
-        np.subtract(self.weights, (gradients + self.brain.mu * self.gradients) * self.brain.eta,
+        # Update weights and biases
+        np.subtract(self.weights,
+                    (self._grad_weights + self.brain.mu * self._old_grads) *
+                    self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                     out=self.biases)
-
-        self.gradients = gradients
 
     def receive_error(self, error):
         """
@@ -304,7 +311,8 @@ class FFLayer(_FCLayer):
         self.error = error
 
     def shuffle(self):
-        self.weights = np.random.randn(*self.weights.shape) / np.sqrt(self.inputs)
+        ws = self.weights.shape
+        self.weights = np.random.randn(*ws) / np.sqrt(ws[0])
 
 
 class DropOut(FFLayer):
@@ -317,36 +325,137 @@ class DropOut(FFLayer):
     def feedforward(self, questions):
         self.inputs = ravtm(questions)
         self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
-        self.excitation = (np.dot(self.inputs, self.weights) + self.biases) * self.mask
-        self.output = self.activation(self.excitation)
+        Z = (np.dot(self.inputs, self.weights) + self.biases) * self.mask
+        self.output = self.activation(Z)
         return self.output
 
     def predict(self, question):
         return FFLayer.predict(self, question) * self.dropchance
 
     def backpropagation(self):
-        prev = self.brain.layers[self.position - 1]
+
+        self._old_grads = np.copy(self._grad_weights)
+        self._grad_weights = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
+
+        prev = self.brain.layers[self.position-1]
         posh = [self.error.shape[0]] + list(prev.outshape)
-        deltas = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
-        return deltas * prev.activation.derivative(prev.output)
+        prev_error = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
+        prev_error *= prev.activation.derivative(prev.output)
+
+        return prev_error
 
     def weight_update(self):
-        # Apply L2 regularization, aka weight decay
-        gradients = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
+        # Apply L1/L2 regularization, aka weight decay
         l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
         l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
-
         if self.brain.lmbd2:
             self.weights *= l2
         if self.brain.lmbd1:
             self.weights -= l1 * np.sign(self.weights)
 
-        np.subtract(self.weights, (gradients + self.brain.mu * self.gradients) * self.brain.eta,
+        np.subtract(self.weights,
+                    (self._grad_weights + self.brain.mu * self._old_grads) *
+                    self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                     out=self.biases)
 
-        self.gradients = gradients
+
+class RLayer(FFLayer):
+    def __init__(self, brain, inputs, neurons, time_truncate, position, activation):
+        FFLayer.__init__(self, brain, inputs, neurons, position, activation)
+
+        self.time_truncate = time_truncate
+        self.rweights = np.random.randn(neurons, neurons)
+        self._grad_rweights = np.zeros_like(self.rweights)
+
+    def feedforward(self, questions):
+        self.inputs = ravtm(questions)
+        time = questions.shape[0]
+        self.output = np.zeros((time+1, self.outshape))
+        for t in range(time):
+            self.output[t] = self.activation(
+                np.dot(self.inputs[t], self.weights[t]) +
+                np.dot(self.output[t-1], self.rweights)
+            )
+        return self.output
+
+    def backpropagation(self):
+        """Backpropagation through time (BPTT)"""
+        T = self.error.shape[0]
+        self._grad_weights = np.zeros(self.weights.shape)
+        self._grad_rweights = np.zeros(self.rweights.shape)
+        prev_error = np.zeros_like(self.inputs)
+        for t in range(0, T, step=-1):
+            t_delta = self.error[t]
+            for bptt in range(max(0, t-self.time_truncate), t+1, step=-1):
+                # TODO: check the order of parameters. Transposition possibly needed somewhere
+                self._grad_rweights += np.outer(t_delta, self.output[bptt - 1])
+                self._grad_weights += np.dot(self._grad_weights, self.inputs) + t_delta
+                t_delta = self.rweights.dot(t_delta) * self.activation.derivative(self.output[bptt-1])
+            prev_error[t] = t_delta
+
+    def receive_error(self, error):
+        """
+        Transforms the received error tensor to adequate shape and stores it.
+
+        :param error: T x N shaped, where T is time and N is the number of neurons
+        :return: None
+        """
+        self.error = ravtm(error)
+
+    def weight_update(self):
+        self.weights -= self.brain.eta * self.grad_weights
+        self.rweights -= self.brain.eta * self.grad_rweights
+
+    def __bptt_reference(self, x, y):
+        """FROM www.wildml.com"""
+        T = len(y)
+        # Perform forward propagation
+        # Catch network output and hidden output
+        o, s = self.forward_propagation(x)
+        # We accumulate the _grad_weights in these variables
+        dLdU = np.zeros(self.U.shape)
+        dLdV = np.zeros(self.V.shape)
+        dLdW = np.zeros(self.W.shape)
+
+        # OMG THIS SIMPLY CALCULATES (output - target*)...
+        # Which by the way is the grad of Xent wrt to the outweights
+        # aka the output error
+        # *provided that target is not converted to 1-hot vectors
+        delta_o = o
+        delta_o[np.arange(len(y)), y] -= 1.
+
+        for t in np.arange(T)[::-1]:
+            # This is the sum of the output weights' _grad_weights
+            dLdV += np.outer(delta_o[t], s[t].T)
+            # backpropagating to the hiddens (Weights * Er) * tanh'(Z)
+            delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
+            # Backpropagation through time (for at most self.time_truncate steps)
+            for bptt_step in np.arange(max(0, t - self.bptt_truncate), t + 1)[::-1]:
+                dLdW += np.outer(delta_t, s[bptt_step - 1])
+                dLdU[:, x[bptt_step]] += delta_t
+                # Update delta for next step
+                delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step - 1] ** 2)
+        return [dLdU, dLdV, dLdW]
+
+    def __forward_propagation(self, x):
+        """FROM www.wildml.com"""
+        # The total number of time steps
+        T = len(x)
+        # During forward propagation we save all hidden states in s because need them later.
+        # We add one additional element for the initial hidden, which we set to 0
+        s = np.zeros((T + 1, self.hidden_dim))
+        s[-1] = np.zeros(self.hidden_dim)
+        # The outsize at each time step. Again, we save them for later.
+        o = np.zeros((T, self.word_dim))
+        # For each time step...
+        for t in np.arange(T):
+            # Note that we are indxing U by x[t]. This is the same as multiplying U with a one-hot vector.
+            # aka self.U.dot(x)
+            s[t] = np.tanh(self.U[:, x[t]] + self.W.dot(s[t-1]))
+            o[t] = softmax(self.V.dot(s[t]))
+        return [o, s]
 
 
 class InputLayer(_FCLayer):

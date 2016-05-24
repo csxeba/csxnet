@@ -1,8 +1,6 @@
 import random
 import math
 
-from ..Utility.activations import *
-
 
 class Neuron:
     def __init__(self, inputs, position, activation):

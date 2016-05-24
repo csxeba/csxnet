@@ -11,7 +11,7 @@ class Abomination:
     Codename: ABOMINATION
 
     Description:
-    I am constructiong a neural-level simulated brain and one of its layers
+    Constructing a neural-level simulated brain and one of its layers
     will be built from complete nerual networks instead of neurons...
     """
 

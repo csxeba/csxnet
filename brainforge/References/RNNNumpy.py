@@ -37,7 +37,7 @@ class RNNNumpy:
         T = len(x)
         s = np.zeros((T + 1, self.hidden_dim))  # All hidden states are saved in s
         s[-1] = np.zeros(self.hidden_dim)  # We initialize s by adding a full-zero state
-        o = np.zeros((T, self.word_dim))  # Store outputs here
+        o = np.zeros((T, self.word_dim))  # Store outsize here
 
         for t in np.arange(T):
             # So...
