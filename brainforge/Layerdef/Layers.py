@@ -48,12 +48,8 @@ class PoolLayer(_VecLayer):
                     self.backpass_filter[i, j, start0:end0, start1:end1] = bpf / np.sum(bpf)
                     index += 1
 
-        self.output = self.excitation = \
-            result.reshape([m] + list(self.outshape))
+        self.output = result.reshape([m] + list(self.outshape))
         return self.output
-
-    def mp_feedforward(self, questions):
-        return self.feedforward(questions)
 
     def predict(self, questions):
         """
@@ -106,24 +102,24 @@ class ConvLayer(_VecLayer):
                            stride=stride, position=position,
                            activation=activation)
 
+        chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
+        raise RuntimeError(chain)
         self.inputs = np.zeros(self.inshape)
         self.outshape = num_filters, self.outshape[0], self.outshape[1]
         self.filters = np.random.randn(num_filters, np.prod(fshape)) / np.sqrt(np.prod(inshape))
         self.grad_filters = np.zeros_like(self.filters)
-        chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
-        raise RuntimeError(chain)
         print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
               .format(self.inshape, self.outshape, position))
 
     def feedforward(self, questions):
         self.inputs = questions
-        self.excitation = convolve(self.inputs, self.filters, mode="valid")
-        self.output = self.activation(self.excitation)
+        exc = convolve(self.inputs, self.filters, mode="valid")
+        self.output = self.activation(exc)
         return self.output
 
     def old_feedforward(self, questions: np.ndarray):
         """
-        Convolves the inputs with filters. Used in the learning phase.
+        Convolves the inputs with filters. Used in the learning phase
 
         :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
         :return: numpy.ndarray: outsize convolved with filters. Shape should be (lessons, filters, cx, cy)
@@ -136,10 +132,9 @@ class ConvLayer(_VecLayer):
                              for qstn in range(questions.shape[0])])
 
         osh = [self.brain.m] + list(self.outshape)
-        self.excitation = np.matmul(recfields, self.filters.T)
-        self.excitation = np.transpose(self.excitation, (0, 2, 1)).reshape(osh)
-        # self.excitation = np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1)).reshape(osh)
-        self.output = self.activation(self.excitation)
+        exc = np.matmul(recfields, self.filters.T)
+        exc = np.transpose(exc, (0, 2, 1)).reshape(osh)
+        self.output = self.activation(exc)
         return self.output
 
     def predict(self, questions: np.ndarray):
@@ -405,9 +400,10 @@ class RLayer(FFLayer):
         self.error = ravtm(error)
 
     def weight_update(self):
-        self.weights -= self.brain.eta * self.grad_weights
-        self.rweights -= self.brain.eta * self.grad_rweights
+        self.weights -= self.brain.eta * self._grad_weights
+        self.rweights -= self.brain.eta * self._grad_rweights
 
+    # noinspection PyUnresolvedReferences
     def __bptt_reference(self, x, y):
         """FROM www.wildml.com"""
         T = len(y)
@@ -439,6 +435,7 @@ class RLayer(FFLayer):
                 delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step - 1] ** 2)
         return [dLdU, dLdV, dLdW]
 
+    # noinspection PyUnresolvedReferences
     def __forward_propagation(self, x):
         """FROM www.wildml.com"""
         # The total number of time steps

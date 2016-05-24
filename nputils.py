@@ -44,3 +44,8 @@ def ravel_to_matrix(A):
 
 def logit(Z: np.ndarray):
     return np.log(Z / (1 - Z))
+
+
+def combination(A, W, b, scale, actfn):
+    """Calculates a linear combination, then applies an activation function."""
+    return actfn(A.dot(W) + b) * scale
