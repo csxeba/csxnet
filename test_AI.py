@@ -18,6 +18,8 @@ def test_ANN():
 
     def get_FFNN():
         nw = Network(data, 0.5, 0.0, 0.0, 0.0, cost=Xent)
+        nw.add_conv()
+        nw.add_pool()
         nw.add_fc(120, activation=Sigmoid)
         nw.add_fc(60, activation=Sigmoid)
         nw.finalize_architecture(activation=Sigmoid)
