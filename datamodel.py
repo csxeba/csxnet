@@ -1,14 +1,49 @@
 import numpy as np
+import abc
 
 YAY = 1.0
 NAY = 0.0
 REAL = np.float32
 
 
-class _Data:
+class _Data(abc.ABC):
     """Base class for Data Wrappers"""
 
     def __init__(self, source, cross_val, indeps_n, header, sep, end):
+        def parse_source():
+            if isinstance(source, np.ndarray):
+                return parsearray(source, header, indeps_n)
+            elif isinstance(source, tuple):
+                return parselearningtable(source)
+            elif isinstance(source, str) and "lt.pkl.gz" in source.lower():
+                return parselearningtable(source)
+            elif isinstance(source, str) and "mnist" in source.lower():
+                return parselearningtable(mnist_to_lt(source))
+            elif isinstance(source, str) and (".csv" or ".txt" in source.lower()):
+                return parsecsv(source, header, indeps_n, sep, end)
+            else:
+                raise TypeError("DataWrapper doesn't support supplied data source!")
+
+        def determine_no_testing():
+            err = "Invalid value for cross_val! Can either be\nrate (float 0.0-1.0)\n" + \
+                  "number of testing examples (0 <= int <= len(data))\n" + \
+                  "the literals 'full', 'half' or 'quarter', or the NoneType object, None."
+            if isinstance(cross_val, float):
+                if not (0.0 <= cross_val <= 1.0):
+                    raise ValueError(err)
+                return int(data.shape[0] * cross_val)
+            elif isinstance(cross_val, int):
+                return cross_val
+            elif isinstance(cross_val, str):
+                cv = cross_val.lower()
+                if cv not in ("full", "half", "quarter"):
+                    raise ValueError(err)
+                return int(data.shape[0] * {"f": 1.0, "h": 0.5, "q": 0.25}[cv[0]])
+            elif cross_val is None:
+                return 0.0
+            else:
+                raise TypeError(err)
+
         self.learning = None
         self.testing = None
         self.lindeps = None
@@ -18,24 +53,14 @@ class _Data:
         self.type = None
         self.mean = 0
         self.std = 0
+        self.standardized = False
 
-        if isinstance(source, np.ndarray):
-            headers, data, indeps = parsearray(source, header, indeps_n)
-        elif isinstance(source, tuple):
-            headers, data, indeps = parselearningtable(source)
-        elif isinstance(source, str) and "lt.pkl.gz" in source.lower():
-            headers, data, indeps = parselearningtable(source)
-        elif isinstance(source, str) and "mnist" in source.lower():
-            headers, data, indeps = parselearningtable(mnist_to_lt(source))
-        elif isinstance(source, str) and (".csv" or ".txt" in source.lower()):
-            headers, data, indeps = parsecsv(source, header, indeps_n, sep, end)
-        else:
-            raise NotImplementedError("DataWrapper doesn't support supplied data source!")
+        data, indeps, headers = parse_source()
+        self.n_testing = determine_no_testing()
 
         self.headers = headers
         self.data, self.indeps = data, indeps
         # self._datacopy = np.copy(data)
-        self.n_testing = int(data.shape[0] * cross_val)
 
     def table(self, data):
         """Returns a learning table"""
@@ -47,8 +72,8 @@ class _Data:
                "d": self.indeps}[data[0]]
 
         # I wasn't sure if the order gets messed up or not, but it seems it isn't
-        # Might be wise to implement thisas a test method, because shuffling
-        # transposed myData might lead to surprises
+        # Might be wise to implement this as a test method, because shuffling
+        # transposed data might lead to surprises
         return dat, ind
 
     def batchgen(self, bsize, data="learning"):
@@ -68,8 +93,23 @@ class _Data:
 
             yield out
 
+    def split_data(self, shuff=True):
+        if shuffle:
+            dat, ind = shuffle((self.data, self.indeps))
+        else:
+            dat, ind = self.data, self.indeps
+        self.learning = dat[self.n_testing:]
+        self.lindeps = ind[self.n_testing:]
+        self.testing = dat[:self.n_testing]
+        self.tindeps = ind[:self.n_testing]
+        self.N = self.learning.shape[0]
+
+    @abc.abstractmethod
     def do_pca(self, no_factors):
         self.data = self.data.reshape(self.data.shape[0], np.prod(self.data.shape[1:]))
+        if self.pca or self.standardized:
+            print("Ignoring attempt to PCA transform already PCA'd or standardized data.")
+            return
         if no_factors is "full":
             print("Doing full PCA. No features:", self.data.shape[1])
             no_factors = self.data.shape[1]
@@ -78,22 +118,20 @@ class _Data:
             self.pca = PCA(n_components=no_factors, whiten=True)
             self.pca.fit(self.data)
 
-        self.data = self.pca.transform(self.data)
+            self.data = self.pca.transform(self.data)
 
+    @abc.abstractmethod
     def standardize(self):
+        if self.standardized or self.pca:
+            print("Ignoring attempt to standardize already standardized or PCA'd data!")
+            return
         self.mean = np.mean(self.data, axis=0)
         self.std = np.std(self.data, axis=0)
         self.data -= self.mean
         self.data /= self.std
+        self.standardized = True
 
-    def split_data(self):
-        dat, ind = shuffle((self.data, self.indeps))
-        self.learning = dat[self.n_testing:]
-        self.lindeps = ind[self.n_testing:]
-        self.testing = dat[:self.n_testing]
-        self.tindeps = ind[:self.n_testing]
-        self.N = self.learning.shape[0]
-
+    @abc.abstractmethod
     def neurons_required(self):
         pass
 
@@ -159,7 +197,7 @@ class CData(_Data):
 
     def do_pca(self, no_factors):
         _Data.do_pca(self, no_factors)
-        self.split_data()
+        self.split_data(shuff=True)
 
     def standardize(self):
         _Data.standardize(self)
@@ -211,24 +249,24 @@ class RData(_Data):
         self.indeps = np.atleast_2d(self.indeps)
         self.split_data()
 
-    def split_data(self):
+    def split_data(self, shuff=True):
         if not self._downscaled:
             from .nputils import featscale
             self.indeps, self._oldfctrs, self._newfctrs = \
                 featscale(self.indeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
             self._downscaled = True
-        _Data.split_data(self)
+        _Data.split_data(self, shuff)
         self.indeps = self.indeps.astype(REAL)
         self.lindeps = self.lindeps.astype(REAL)
         self.tindeps = self.tindeps.astype(REAL)
 
     def do_pca(self, no_factors):
         _Data.do_pca(self, no_factors)
-        self.split_data()
+        self.split_data(shuff=True)
 
     def standardize(self):
         _Data.standardize(self)
-        self.split_data()
+        self.split_data(shuff=True)
 
     def upscale(self, A):
         from .nputils import featscale
@@ -239,6 +277,22 @@ class RData(_Data):
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
+
+
+class Sequence(_Data):
+    def __init__(self, source, cross_val)
+        if isinstance(source, tuple):
+            if len(source) != 2:
+                raise ValueError("Please supply a valid learning table format:\n"+
+                                 "2-tuple of two numpy ndarrays: (questions, targets)")
+            questions, targets = source
+        elif isinstance(source, np.ndarray):
+            questions, targets = np.copy(source[:-1]), np.copy(source[1:])
+        else:
+            raise TypeError("Please either supply a learning table (tuple) or a sequence (ndarray)")
+        del source
+
+        _Data.__init__(self, (questions, targets), cross_val, 1, None, "\t", "\n")
 
 
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
