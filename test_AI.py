@@ -7,19 +7,17 @@ from brainforge.Utility.cost import Xent, MSE
 from datamodel import CData, mnist_to_lt
 
 
-datapath = "D:/Data/" if sys.platform == 'win32' else "/data/Prog/data/learning_tables/"
+datapath = "D:/Data/learning_tables/" if sys.platform == 'win32' else "/data/Prog/data/learning_tables/"
 log = ""
 
 
 def test_ANN():
     pca = 0
-    data = CData(mnist_to_lt(datapath+"mnist.pkl.gz"),
-                 cross_val=0.1, pca=pca)
+    lt = mnist_to_lt(datapath+"mnist.pkl.gz")
+    data = CData(lt, cross_val=0.1, pca=pca)
 
     def get_FFNN():
         nw = Network(data, 0.5, 0.0, 0.0, 0.0, cost=Xent)
-        nw.add_conv()
-        nw.add_pool()
         nw.add_fc(120, activation=Sigmoid)
         nw.add_fc(60, activation=Sigmoid)
         nw.finalize_architecture(activation=Sigmoid)

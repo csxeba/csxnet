@@ -4,7 +4,7 @@ import itertools
 
 import nltk
 
-from datamodel import CData
+from datamodel import Sequence
 from brainforge.Architecture.NNModel import RNN
 from brainforge.Utility.cost import Xent
 from brainforge.Utility.activations import *
@@ -19,10 +19,9 @@ csvsroot = dataroot + "csvs/"
 datapath = csvsroot + "reddit.csv"
 
 crossval = 0.2
-standardize = True
 pca = 0
 
-dataargs = (crossval, standardize, pca)
+dataargs = (crossval, pca)
 
 time = 7
 neurons = 4
@@ -42,7 +41,7 @@ def getrnn(data, args):
 
 def pull_reddit_data(path, args: tuple):
 
-    cross_val, stdz, pca_pcs = args
+    cross_val, pca_pcs = args
 
     # Read the data and append SENTENCE_START and SENTENCE_END tokens
     print("Reading CSV file...")
@@ -83,9 +82,7 @@ def pull_reddit_data(path, args: tuple):
     X = np.array([np.array([word_to_index[w] for w in sent[:-1]]) for sent in tokenized_sentences])
     Y = np.array([np.array([word_to_index[w] for w in sent[1:]]) for sent in tokenized_sentences])
 
-    data = CData((X, Y), cross_val=cross_val, pca=pca_pcs)
-    if stdz:
-        data.standardize()
+    data = Sequence((X, Y), vocabulary=word_to_index, cross_val=cross_val)
 
     return data
 

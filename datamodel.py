@@ -55,7 +55,7 @@ class _Data(abc.ABC):
         self.std = 0
         self.standardized = False
 
-        data, indeps, headers = parse_source()
+        headers, data, indeps = parse_source()
         self.n_testing = determine_no_testing()
 
         self.headers = headers
@@ -76,7 +76,13 @@ class _Data(abc.ABC):
         # transposed data might lead to surprises
         return dat, ind
 
-    def batchgen(self, bsize, data="learning"):
+    def batchgen(self, bsize: int, data: str="learning") -> np.ndarray:
+        """Returns a generator that yields batches randomly from the
+        specified dataset.
+
+        :param bsize: specifies the size of the batches
+        :param data: specifies the dataset (learning, testing or data)
+        """
         tab = shuffle(self.table(data))
         tsize = len(tab[0])
         start = 0
@@ -279,20 +285,22 @@ class RData(_Data):
         return self.data[0].shape, self.indeps.shape[1]
 
 
-class Sequence(_Data):
-    def __init__(self, source, cross_val)
+class Sequence:
+    def __init__(self, source, vocabulary, cross_val):
         if isinstance(source, tuple):
             if len(source) != 2:
                 raise ValueError("Please supply a valid learning table format:\n"+
                                  "2-tuple of two numpy ndarrays: (questions, targets)")
             questions, targets = source
         elif isinstance(source, np.ndarray):
-            questions, targets = np.copy(source[:-1]), np.copy(source[1:])
+            questions = np.array([np.array([vocabulary[w] for w in sent[:-1]]) for sent in source])
+            targets = np.array([np.array([vocabulary[w] for w in sent[1:]]) for sent in source])
         else:
             raise TypeError("Please either supply a learning table (tuple) or a sequence (ndarray)")
         del source
 
-        _Data.__init__(self, (questions, targets), cross_val, 1, None, "\t", "\n")
+    def neurons_required(self):
+        pass
 
 
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
