@@ -109,9 +109,11 @@ class ThNetDynamic(NeuralNetworkBase):
             return cost
 
         def define_update_rules():
-            return [(param, param - (self.eta / self.m) * T.grad(self.cost, param))
-                    for param in [layer.weights for layer in self.layers] +
-                                 [layer.biases for layer in self.layers]]
+            rules = []
+            for params in [layer.params for layer in self.layers]:
+                rules.extend([(param, param - (self.eta / self.m) * T.grad(self.cost, param))
+                             for param in params])
+            return rules
 
         self.layers.append(define_output_layer())
         self.output = define_feedforward()
@@ -196,6 +198,8 @@ class ThConvPoolLayer(_ThLayerBase):
 
         self.biases = theano.shared(np.zeros((filters,), dtype=floatX))
 
+        self.params = [self.weights, self.biases]
+
         self.pool = pool
 
     def output(self, inputs, mint):
@@ -213,6 +217,7 @@ class ThFCLayer(_ThLayerBase):
                                      name="{}. FCweights".format(position))
         self.biases = theano.shared((np.zeros((neurons,), dtype=floatX)),
                                     name="{}. FCbiases".format(self.position))
+        self.params = [self.weights, self.biases]
 
     def output(self, inputs, mint):
         i = T.reshape(inputs, (mint, self.fanin))

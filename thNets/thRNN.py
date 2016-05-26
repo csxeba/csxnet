@@ -6,7 +6,7 @@ import theano.tensor.nnet as nnet
 floatX = theano.config.floatX
 
 
-class LSTM:
+class ThLSTM:
     def __init__(self, neurons, inputs):
         fanin = np.prod(inputs)
         self.forget_input = theano.shared(
