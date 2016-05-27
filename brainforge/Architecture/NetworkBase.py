@@ -16,7 +16,6 @@ class NeuralNetworkBase(abc.ABC):
         self.fanin, self.outsize = data.neurons_required()
 
         # Parameters required for SGD
-        self.cost = cost()
         self.eta = eta
         self.lmbd1 = lmbd1
         self.lmbd2 = lmbd2

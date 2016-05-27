@@ -13,6 +13,11 @@ class Network(NeuralNetworkBase):
         self.error = float()
         self.m = int()  # Batch size goes here
 
+        if isinstance(cost, str):
+            self.cost = fromstring[cost]
+        else:
+            self.cost = cost
+
         self.layers.append(InputLayer(brain=self, inshape=self.fanin))
         self.architecture.append("In: {}".format(self.fanin))
         self.predictor = None
@@ -162,7 +167,7 @@ class Network(NeuralNetworkBase):
             questions = layer.feedforward(questions)
         # Calculate the cost derivative
         last = self.layers[-1]
-        last.error = self.cost.derivative(last.output, targets, last.excitation, last.activation)
+        last.error = self.cost.derivative(last.output, targets, last.activation)
         # Backpropagate the errors
         for layer in self.layers[-1:1:-1]:
             prev_layer = self.layers[layer.position - 1]

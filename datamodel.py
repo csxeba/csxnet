@@ -131,10 +131,12 @@ class _Data(abc.ABC):
         if self.standardized or self.pca:
             print("Ignoring attempt to standardize already standardized or PCA'd data!")
             return
+        self.data += 0.1
         self.mean = np.mean(self.data, axis=0)
         self.std = np.std(self.data, axis=0)
         self.data -= self.mean
         self.data /= self.std
+        # self.data = np.nan_to_num(self.data)
         self.standardized = True
 
     @abc.abstractmethod

@@ -61,3 +61,7 @@ def mse(outputs, targets, excitations, activation_derivative):
 
 def xent(outputs, targets, excitations=None, activation=None):
     return np.subtract(outputs, targets)
+
+
+fromstring = {"xent": Xent,
+              "mse": MSE}

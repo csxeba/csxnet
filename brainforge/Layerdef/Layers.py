@@ -389,6 +389,7 @@ class RLayer(FFLayer):
                 self._grad_weights += np.dot(self._grad_weights, self.inputs) + t_delta
                 t_delta = self.rweights.dot(t_delta) * self.activation.derivative(self.output[bptt-1])
             prev_error[t] = t_delta
+        return prev_error
 
     def receive_error(self, error):
         """

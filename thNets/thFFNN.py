@@ -4,7 +4,7 @@ import theano.tensor as T
 import theano.tensor.nnet as nnet
 from theano.tensor.signal.downsample import max_pool_2d
 
-from ..brainforge.Architecture.NetworkBase import NeuralNetworkBase
+from csxnet.brainforge.Architecture.NetworkBase import NeuralNetworkBase
 
 theano.config.exception_verbosity = "high"
 # theano.config.optimizer = "fast_compile"
@@ -112,12 +112,12 @@ class ThNetDynamic(NeuralNetworkBase):
             rules = []
             for params in [layer.params for layer in self.layers]:
                 rules.extend([(param, param - (self.eta / self.m) * T.grad(self.cost, param))
-                             for param in params])
+                              for param in params])
             return rules
 
         self.layers.append(define_output_layer())
         self.output = define_feedforward()
-        self.cost, self.prediction = define_cost()
+        self.cost = define_cost()
         self.prediction = T.argmax(self.output, axis=1)
         updates = define_update_rules()
 
@@ -213,7 +213,7 @@ class ThFCLayer(_ThLayerBase):
         _ThLayerBase.__init__(self, inshape, position)
         self.outshape = neurons
         self.activation = {"sigmoid": nnet.sigmoid, "tanh": T.tanh, "softmax": nnet.softmax}[activation.lower()]
-        self.weights = theano.shared((np.random.randn(self.fanin, neurons) / self.fanin).astype(floatX),
+        self.weights = theano.shared((np.random.randn(self.fanin, neurons) / np.sqrt(self.fanin)).astype(floatX),
                                      name="{}. FCweights".format(position))
         self.biases = theano.shared((np.zeros((neurons,), dtype=floatX)),
                                     name="{}. FCbiases".format(self.position))
@@ -233,6 +233,19 @@ class ThDropoutLayer(ThFCLayer):
     def __init__(self, neurons, inshape, dropchance, position, activation="sigmoid"):
         ThFCLayer.__init__(neurons, inshape, position, activation)
         print("Dropout not implemented yet, falling back to ThFCLayer!")
+
+
+class ThRLayer(ThFCLayer):
+    def __init__(self, neurons, inshape, position, activation="tanh"):
+        ThFCLayer.__init__(self, neurons, inshape, position, activation)
+        self.weights.name = "{}. RecWeights".format(self.position)
+        self.biases.name = "{}. RecBiases".format(self.position)
+        self.rweights = theano.shared((np.random.randn(neurons, neurons) / np.sqrt(self.fanin)).astype(floatX),
+                                      name="{}. RecRWeights".format(self.position))
+        self.params = [self.weights, self.rweights, self.biases]
+
+    def output(self, inputs, mint):
+        i = T.reshape(inputs, (mint, self.fanin))
 
 
 class _CostBase:

@@ -1,54 +1,3 @@
-# import numpy as np
-# import theano
-# import theano.tensor as T
-# import theano.tensor.nnet as nnet
-#
-# floatX = theano.config.floatX
-#
-#
-# class LSTM:
-#     def __init__(self, neurons, inputs):
-#         fanin = np.prod(inputs)
-#         self.forget_input = theano.shared(
-#             (np.random.randn(fanin, neurons) / np.sqrt(fanin))
-#             .astype(floatX), name="Forget Input Gate")
-#         self.input_input = theano.shared(
-#             (np.random.randn(fanin, neurons) / np.sqrt(fanin))
-#             .astype(floatX), name="Input Input Gate")
-#         self.output_input = theano.shared(
-#             (np.random.randn(fanin, neurons) / np.sqrt(fanin))
-#             .astype(floatX), name="Output Input Gate")
-#
-#         self.forget_state = theano.shared(
-#             (np.random.randn(neurons, neurons) / np.sqrt(neurons))
-#             .astype(floatX), name="Forget State Gate")
-#         self.input_state = theano.shared(
-#             (np.random.randn(neurons, neurons) / np.sqrt(neurons))
-#             .astype(floatX), name="Input State Gate")
-#         self.output_state = theano.shared(
-#             (np.random.randn(neurons, neurons) / np.sqrt(neurons))
-#             .astype(floatX), name="Output State Gate")
-#
-#         self.forget_bias = theano.shared(
-#             np.zeros((neurons,), dtype=floatX),
-#             name="Forget Bias")
-#         self.input_bias = theano.shared(
-#             np.zeros((neurons,), dtype=floatX),
-#             name="Input Bias")
-#         self.output_bias = theano.shared(
-#             np.zeros((neurons,), dtype=floatX),
-#             name="Output Bias")
-#
-#         self.cell_state = theano.shared(
-#             np.zeros(neurons, neurons).astype(floatX),
-#             name="Cell State")
-#
-#     def output(self, inputs, mint):
-#         i = nnet.sigmoid(
-#             inputs.dot(self.input_input) +
-#
-#         )
-
 import pickle
 
 from collections import OrderedDict
@@ -63,13 +12,15 @@ from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
 import thNets.imdb as imdb
 
-datasets = {'imdb': (imdb.load_data, imdb.prepare_data)}
-
 # Set the random number generators' seeds for consistency
 SEED = 123
 numpy.random.seed(SEED)
 
 print("floatX: {}, device: {}".format(config.floatX, config.device))
+
+# Utility functions
+def _p(pp, name):
+    return '%s_%s' % (pp, name)
 
 
 def numpy_floatX(data):
@@ -99,10 +50,6 @@ def get_minibatches_idx(n, minibatch_size, shuffle=False):
     return zip(range(len(minibatches)), minibatches)
 
 
-def get_dataset(name):
-    return datasets[name][0], datasets[name][1]
-
-
 def zipp(params, tparams):
     """
     When we reload the model. Needed for the GPU stuff.
@@ -121,6 +68,12 @@ def unzip(zipped):
     return new_params
 
 
+def ortho_weight(ndim):
+    W = numpy.random.randn(ndim, ndim)
+    u, s, v = numpy.linalg.svd(W)
+    return u.astype(config.floatX)
+
+
 def dropout_layer(state_before, use_noise, trng):
     proj = tensor.switch(use_noise,
                          (state_before *
@@ -129,30 +82,6 @@ def dropout_layer(state_before, use_noise, trng):
                                         dtype=state_before.dtype)),
                          state_before * 0.5)
     return proj
-
-
-def _p(pp, name):
-    return '%s_%s' % (pp, name)
-
-
-def init_params(options):
-    """
-    Global (not LSTM) parameter. For the embeding and the classifier.
-    """
-    params = OrderedDict()
-    # embedding
-    randn = numpy.random.rand(options['n_words'],
-                              options['dim_proj'])
-    params['Wemb'] = (0.01 * randn).astype(config.floatX)
-    params = get_layer(options['encoder'])[0](options,
-                                              params,
-                                              prefix=options['encoder'])
-    # classifier
-    params['U'] = 0.01 * numpy.random.randn(options['dim_proj'],
-                                            options['ydim']).astype(config.floatX)
-    params['b'] = numpy.zeros((options['ydim'],)).astype(config.floatX)
-
-    return params
 
 
 def load_params(path, params):
@@ -165,22 +94,29 @@ def load_params(path, params):
     return params
 
 
+def init_params(options):
+    """
+    Global (not LSTM) parameters. For the embeding and the classifier.
+    """
+    params = OrderedDict()
+    # embedding
+    randn = numpy.random.rand(options['n_words'],
+                              options['dim_proj'])
+    params['Wemb'] = (0.01 * randn).astype(config.floatX)
+    params = param_init_lstm(options, params, prefix=options['encoder'])
+    # classifier
+    params['U'] = 0.01 * numpy.random.randn(options['dim_proj'],
+                                            options['ydim']).astype(config.floatX)
+    params['b'] = numpy.zeros((options['ydim'],)).astype(config.floatX)
+
+    return params
+
+
 def init_tparams(params):
     tparams = OrderedDict()
     for kk, pp in params.items():
         tparams[kk] = theano.shared(params[kk], name=kk)
     return tparams
-
-
-def get_layer(name):
-    fns = layers[name]
-    return fns
-
-
-def ortho_weight(ndim):
-    W = numpy.random.randn(ndim, ndim)
-    u, s, v = numpy.linalg.svd(W)
-    return u.astype(config.floatX)
 
 
 def param_init_lstm(options, params, prefix='lstm'):
@@ -253,11 +189,7 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None):
     return rval[0]
 
 
-# ff: Feed Forward (normal neural net), only useful to put after lstm
-#     before the classifier.
-layers = {'lstm': (param_init_lstm, lstm_layer)}
-
-
+# Optimizers
 def sgd(lr, tparams, grads, x, mask, y, cost):
     """ Stochastic Gradient Descent
 
@@ -428,12 +360,11 @@ def build_model(tparams, options):
     emb = tparams['Wemb'][x.flatten()].reshape([n_timesteps,
                                                 n_samples,
                                                 options['dim_proj']])
-    proj = get_layer(options['encoder'])[1](tparams, emb, options,
-                                            prefix=options['encoder'],
-                                            mask=mask)
-    if options['encoder'] == 'lstm':
-        proj = (proj * mask[:, :, None]).sum(axis=0)
-        proj = proj / mask.sum(axis=0)[:, None]
+    proj = lstm_layer(tparams, emb, options,
+                      prefix=options['encoder'],
+                      mask=mask)
+    proj = (proj * mask[:, :, None]).sum(axis=0)
+    proj = proj / mask.sum(axis=0)[:, None]
     if options['use_dropout']:
         proj = dropout_layer(proj, use_noise, trng)
 
@@ -486,7 +417,7 @@ def pred_error(f_pred, prepare_data, data, iterator):
                                   maxlen=None)
         preds = f_pred(x, mask)
         targets = numpy.array(data[1])[valid_index]
-        valid_err += (preds == targets).sum()
+        valid_err += tensor.sum((preds == targets))
     valid_err = 1. - numpy_floatX(valid_err) / len(data[0])
 
     return valid_err
@@ -503,7 +434,7 @@ def train_lstm(
         optimizer=adadelta,
         # sgd, adadelta and rmsprop available, sgd very hard to use, not recommanded
         # (probably need momentum and decaying learning rate).
-        encoder='lstm',  # TODO: can be removed must be lstm.
+        encoder='lstm',
         saveto='lstm_model.npz',  # The best model will be saved there
         validFreq=370,  # Compute the validation error after this number of update.
         saveFreq=1110,  # Save the parameters after every saveFreq updates
@@ -519,11 +450,11 @@ def train_lstm(
         reload_model=None,  # Path to a saved model we want to start from.
         test_size=-1,  # If >0, we keep only this number of test example.
 ):
-    # Model options
+    # Prepare Data
     model_options = locals().copy()
     print("model options", model_options)
 
-    load_data, prepare_data = get_dataset(dataset)
+    load_data, prepare_data = imdb.load_data, imdb.prepare_data
 
     print('Loading data')
     train, valid, test = load_data(n_words=n_words, valid_portion=0.05,
@@ -542,26 +473,25 @@ def train_lstm(
     model_options['ydim'] = ydim
 
     print('Building model')
-    # This create the initial parameters as numpy ndarrays.
+    # This creates the initial parameters as numpy ndarrays.
     # Dict name (string) -> numpy ndarray
     params = init_params(model_options)
 
     if reload_model:
         load_params('lstm_model.npz', params)
 
-    # This create Theano Shared Variable from the parameters.
+    # This creates Theano Shared Variable from the parameters.
     # Dict name (string) -> Theano Tensor Shared Variable
-    # params and tparams have different copy of the weights.
+    # params and tparams have different copies of the weights.
     tparams = init_tparams(params)
 
     # use_noise is for dropout
-    (use_noise, x, mask,
-     y, f_pred_prob, f_pred, cost) = build_model(tparams, model_options)
+    use_noise, x, mask, y, f_pred_prob, f_pred, cost = build_model(tparams, model_options)
 
     if decay_c > 0.:
         decay_c = theano.shared(numpy_floatX(decay_c), name='decay_c')
         weight_decay = 0.
-        weight_decay += (tparams['U'] ** 2).sum()
+        weight_decay += tensor.sum((tparams['U'] ** 2))
         weight_decay *= decay_c
         cost += weight_decay
 
@@ -634,7 +564,7 @@ def train_lstm(
                         params = best_p
                     else:
                         params = unzip(tparams)
-                    numpy.savez(saveto, history_errs=history_errs, **params)
+                    numpy.savez(saveto, history_errs=history_errs, **dict(params))
                     pickle.dump(model_options, open('%s.pkl' % saveto, 'wb'), -1)
                     print('Done')
 
@@ -647,18 +577,17 @@ def train_lstm(
 
                     history_errs.append([valid_err, test_err])
 
-                    if (best_p is None or
-                                valid_err <= numpy.array(history_errs)[:,
-                                             0].min()):
+                    if (best_p is None) or \
+                            (valid_err <= numpy.array(history_errs)[:, 0].min()):
                         best_p = unzip(tparams)
                         bad_counter = 0
-
                     print(('Train ', train_err, 'Valid ', valid_err,
                            'Test ', test_err))
 
                     if len(history_errs) > patience and \
                        valid_err >= numpy.array(history_errs)[:-patience, 0].min():
 
+                        # noinspection PyUnboundLocalVariable
                         bad_counter += 1
                         if bad_counter > patience:
                             print('Early Stop!')
@@ -689,7 +618,7 @@ def train_lstm(
     if saveto:
         numpy.savez(saveto, train_err=train_err,
                     valid_err=valid_err, test_err=test_err,
-                    history_errs=history_errs, **best_p)
+                    history_errs=history_errs, **dict(best_p))
     print('The code run for %d epochs, with %f sec/epochs' % (
         (eidx + 1), (end_time - start_time) / (1. * (eidx + 1))))
     print(('Training took %.1fs' %
