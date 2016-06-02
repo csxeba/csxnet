@@ -7,15 +7,10 @@ import theano.tensor.nnet as nnet
 floatX = theano.config.floatX
 
 
-class ThRNN:
-    def __init_(self, neurons, inputs):
-        fanin = np.prod(inputs)
-
-
-
 class ThLSTM:
     def __init__(self, neurons, inputs):
         fanin = np.prod(inputs)
+        self.outshape = neurons
         self.input_weights = theano.shared(
             (np.random.randn(4, fanin, neurons) / np.sqrt(fanin))
             .astype(floatX), name="Input Gates")
@@ -31,17 +26,22 @@ class ThLSTM:
             np.zeros(neurons, neurons).astype(floatX), name="Cell State")
 
     def output(self, inputs, mint):
-        preact = inputs.dot(self.input_weights)
-        preact += self.cell_state.dot(self.state_weights) + self.biases
-        i = nnet.hard_sigmoid(preact[..., :4])
-        f = nnet.hard_sigmoid(preact[..., 4:8])
-        o = nnet.hard_sigmoid(preact[..., 8:12])
-        c_ = T.tanh(preact[..., 12:])
-        c = self.cell_state * f + c_ * i
-        self.cell_state = c
-        return T.tanh(c) * o
 
+        def step(prev_o, prev_c):
+            preact = prev_o.dot(self.input_weights)
+            preact += self.cell_state.dot(self.state_weights) + self.biases
 
-class ThGRU:
-    def __init__(self, neurons, inputs):
-        fanin = np.prod(inputs)
+            i = nnet.hard_sigmoid(preact[..., :4])
+            f = nnet.hard_sigmoid(preact[..., 4:8])
+            o = nnet.hard_sigmoid(preact[..., 8:12])
+            c_ = T.tanh(preact[..., 12:])
+            state = f * prev_c + i * c_
+            output = T.tanh(o * state)
+
+            return output, state
+
+        (last_o, last_c), updates = theano.scan(step,
+                                                sequences=inputs,
+                                                outputs_info=(T.zeros((mint, self.outshape)),
+                                                            T.zeros((mint, self.outshape))))
+        return last_o

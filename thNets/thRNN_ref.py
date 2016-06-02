@@ -156,6 +156,12 @@ def lstm_layer(tparams, state_below, options, prefix='lstm', mask=None):
         return _x[:, n * dim:(n + 1) * dim]
 
     def _step(m_, x_, h_, c_):
+        """So
+        m_ is the dropout mask...
+        x_ is input!(
+        h_ is previous hidden output
+        c_ is previous cell state (memory)
+        """
         preact = tensor.dot(h_, tparams[_p(prefix, 'U')])
         preact += x_
 
