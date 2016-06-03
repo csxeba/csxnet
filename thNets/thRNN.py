@@ -43,5 +43,9 @@ class ThLSTM:
         (last_o, last_c), updates = theano.scan(step,
                                                 sequences=inputs,
                                                 outputs_info=(T.zeros((mint, self.outshape)),
-                                                            T.zeros((mint, self.outshape))))
+                                                              T.zeros((mint, self.outshape))))
         return last_o
+
+
+def test():
+    net = ThLSTM()

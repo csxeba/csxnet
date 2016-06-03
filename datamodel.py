@@ -288,21 +288,45 @@ class RData(_Data):
 
 
 class Sequence:
-    def __init__(self, source, vocabulary, cross_val):
-        if isinstance(source, tuple):
-            if len(source) != 2:
-                raise ValueError("Please supply a valid learning table format:\n"+
-                                 "2-tuple of two numpy ndarrays: (questions, targets)")
-            questions, targets = source
-        elif isinstance(source, np.ndarray):
-            questions = np.array([np.array([vocabulary[w] for w in sent[:-1]]) for sent in source])
-            targets = np.array([np.array([vocabulary[w] for w in sent[1:]]) for sent in source])
-        else:
-            raise TypeError("Please either supply a learning table (tuple) or a sequence (ndarray)")
-        del source
+    def __init__(self, source, vocabulary=None):
+
+        self._raw = source
+        self._tokenized = False
+        self._embedded = False
+        self._util_tokens = {"unk": "<UNK>",
+                             "start": "<START>",
+                             "end": "<END>"}
+
+        self.vocabulary = {}
+        self.data = None
+        self.learning = None
+        self.lindeps = None
 
     def neurons_required(self):
-        pass
+        return self.data.shape[0]  # TODO: is this right??
+
+    def init_vocabulary(self, vlimit=None, tokenize=True, embed=False, embeddim=5):
+        assert tokenize ^ embed, "Please use either tokenization or embedding!"
+        if tokenize:
+            self.vocabulary = {label: integer for integer, label in enumerate(list(set(self._raw)))[:vlimit]}
+        if embed:
+            emb = np.random.random((self._raw.shape[0], embeddim))
+            self.vocabulary = {label: array for label, array in list(zip(self._raw, emb))[:vlimit]}
+
+    def embed_data(self, dims=5):
+        assert not (self._tokenized and self._embedded), "Data already tokenized or embedded!"
+
+    def tokenize_data(self, limit=None):
+        assert not (self._tokenized and self._embedded), "Data already tokenized or embedded!"
+        questions = np.array([np.array([self.vocabulary[w] for w in sent[:-1]]) for sent in self._raw])
+        targets = np.array([np.array([self.vocabulary[w] for w in sent[:-1]]) for sent in self._raw])
+        return
+
+    def _get_vocabulary(self, source, limit):
+        if isinstance(source, np.ndarray):
+            source = source.tolist()
+        return list(set(source))[:limit]
+
 
 
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
