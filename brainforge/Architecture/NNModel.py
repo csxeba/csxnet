@@ -250,8 +250,12 @@ class Network(NeuralNetworkBase):
             layer.shuffle()
 
     def describe(self, verbose=0):
+        if not self.name:
+            name = "CsxNet BrainForge Artificial Neural Network."
+        else:
+            name = "{}, the Artificial Neural Network.".format(self.name)
         chain = "----------\n"
-        chain += "CsxNet BrainForge Artificial Neural Network.\n"
+        chain += "{}\n".format(name)
         chain += "Age: " + str(self.age) + "\n"
         chain += "Architecture: " + str(self.architecture) + "\n"
         chain += "----------"

@@ -283,6 +283,13 @@ class RData(_Data):
         else:
             return featscale(A, axis=0, dfctr=self._newfctrs, ufctr=self._oldfctrs)
 
+    def downscale(self, A):
+        from .nputils import featscale
+        if not self._downscaled:
+            return A
+        else:
+            return featscale(A, axis=0, dfctr=self._oldfctrs, ufctr=self._newfctrs)
+
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
 

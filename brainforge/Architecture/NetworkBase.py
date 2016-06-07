@@ -25,6 +25,7 @@ class NeuralNetworkBase(abc.ABC):
         self.layers = []
         self.architecture = []
         self.age = 0
+        self.name = ""
 
     @abc.abstractmethod
     def learn(self, batch_size: int): pass

@@ -52,3 +52,21 @@ def plot(*lsts):
         plt.subplot(len(lsts), 1, fn + 1)
         plt.plot(lst)
     plt.show()
+
+
+def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
+    import numpy as np
+    with open(path) as f:
+        lines = f.read().split(end)
+        f.close()
+    lines = [l.split(sep) for l in lines if l]
+    if header:
+        header, lines = lines[0], lines[1:]
+    else:
+        header = None
+    if labels is not None:
+        labels = [ln[0] for ln in lines]
+        lines = [ln[1:] for ln in lines]
+    lines = np.array(lines, dtype="float32")
+
+    return lines, header, labels
