@@ -368,10 +368,10 @@ class RLayer(FFLayer):
         self.inputs = ravtm(questions)
         time = questions.shape[0]
         self.output = np.zeros((time+1, self.outshape))
+        preact = np.dot(self.inputs, self.weights)
         for t in range(time):
             self.output[t] = self.activation(
-                np.dot(self.inputs[t], self.weights[t]) +
-                np.dot(self.output[t-1], self.rweights)
+                preact[t] + np.dot(self.output[t-1], self.rweights)
             )
         return self.output
 

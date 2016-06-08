@@ -1,3 +1,5 @@
+import abc
+
 import numpy as np
 import theano
 import theano.tensor as T
@@ -56,6 +58,10 @@ class ThNetDynamic(NeuralNetworkBase):
 
         self.architecture.append("FC({}): {}".format(neurons, activation[:4]))
         self.layers.append(ThFCLayer(neurons, fanin, pos, activation))
+
+    def add_rec(self, neurons):
+        pos = len(self.layers)
+        fanin = self.fanin if not pos else self.layers[-1].outshape
 
     def finalize(self):
 
@@ -169,13 +175,18 @@ class ThNetDynamic(NeuralNetworkBase):
             return chain
 
 
-class _ThLayerBase:
+class _ThLayerBase(abc.ABC):
     def __init__(self, inshape, position):
         self.fanin = np.prod(inshape)
         self.inshape = inshape
         self.position = position
 
+    @abc.abstractmethod
     def output(self, intputs, mint): pass
+
+    @abc.abstractmethod
+    @property
+    def outshape(self): pass
 
 
 class ThConvPoolLayer(_ThLayerBase):
@@ -187,7 +198,7 @@ class ThConvPoolLayer(_ThLayerBase):
         assert ((ix - conv) + 1) % pool == 0, "Non-integer ConvPool output shape!"
 
         osh = ((ix - conv) + 1) // pool
-        self.outshape = osh, osh, filters
+        self._outshape = osh, osh, filters
         self.fshape = filters, channel, conv, conv
 
         self.weights = theano.shared(
@@ -207,11 +218,15 @@ class ThConvPoolLayer(_ThLayerBase):
         pact = max_pool_2d(cact, ds=(self.pool, self.pool), ignore_border=True)
         return T.tanh(pact + self.biases.dimshuffle("x", 0, "x", "x"))
 
+    @property
+    def outshape(self):
+        return self._outshape
+
 
 class ThFCLayer(_ThLayerBase):
     def __init__(self, neurons, inshape, position, activation="sigmoid"):
         _ThLayerBase.__init__(self, inshape, position)
-        self.outshape = neurons
+        self._outshape = neurons
         self.activation = {"sigmoid": nnet.sigmoid, "tanh": T.tanh, "softmax": nnet.softmax}[activation.lower()]
         self.weights = theano.shared((np.random.randn(self.fanin, neurons) / np.sqrt(self.fanin)).astype(floatX),
                                      name="{}. FCweights".format(position))
@@ -222,6 +237,10 @@ class ThFCLayer(_ThLayerBase):
     def output(self, inputs, mint):
         i = T.reshape(inputs, (mint, self.fanin))
         return self.activation(i.dot(self.weights) + self.biases)
+
+    @property
+    def outshape(self):
+        return self._outshape
 
 
 class ThOutputLayer(ThFCLayer):
@@ -235,17 +254,86 @@ class ThDropoutLayer(ThFCLayer):
         print("Dropout not implemented yet, falling back to ThFCLayer!")
 
 
-class ThRLayer(ThFCLayer):
-    def __init__(self, neurons, inshape, position, activation="tanh"):
-        ThFCLayer.__init__(self, neurons, inshape, position, activation)
-        self.weights.name = "{}. RecWeights".format(self.position)
-        self.biases.name = "{}. RecBiases".format(self.position)
-        self.rweights = theano.shared((np.random.randn(neurons, neurons) / np.sqrt(self.fanin)).astype(floatX),
-                                      name="{}. RecRWeights".format(self.position))
-        self.params = [self.weights, self.rweights, self.biases]
+class ThRLayer(_ThLayerBase):
+    def __init__(self, neurons, inputs, position):
+        _ThLayerBase.__init__(self, inputs, position)
+
+        self._outshape = neurons
+        self.input_weights = theano.shared(
+            (np.random.randn(self.fanin, neurons) / np.sqrt(self.fanin))
+            .astype(floatX), name="R Input Weights"
+        )
+        self.state_weights = theano.shared(
+            (np.random.randn(neurons, neurons) / np.sqrt(neurons))
+            .astype(floatX), name="R State Weights"
+        )
+        self.biases = theano.shared(
+            np.zeros((neurons,), dtype=floatX)
+        )
 
     def output(self, inputs, mint):
-        i = T.reshape(inputs, (mint, self.fanin))
+
+        def step(x_t, y_t_1):
+            z = x_t.dot(self.input_weights) + y_t_1.dot(self.state_weights) + self.biases
+            y_t = T.tanh(z)
+            return y_t
+
+        y, updates = theano.scan(step,
+                                 sequences=inputs,
+                                 outputs_info=[None,
+                                               np.zeros((self.outshape,), dtype=floatX)])
+        return y
+
+    @property
+    def outshape(self):
+        return self._outshape
+
+
+class ThLSTM(_ThLayerBase):
+    def __init__(self, neurons, inputs, position):
+        _ThLayerBase.__init__(self, inputs, position)
+        self._outshape = neurons
+        self.input_weights = theano.shared(
+            (np.random.randn(4, self.fanin, neurons) / np.sqrt(self.fanin))
+            .astype(floatX), name="Input Gates")
+
+        self.state_weights = theano.shared(
+            (np.random.randn(4, neurons, neurons) / np.sqrt(neurons))
+            .astype(floatX), name="State Gates")
+
+        self.biases = theano.shared(
+            np.zeros((4, neurons), dtype=floatX), name="Biases")
+
+        self.cell_state = theano.shared(
+            np.zeros(neurons, neurons).astype(floatX), name="Cell State")
+
+    def output(self, inputs, mint):
+
+        def step(x, prev_o, prev_c):
+            preact = prev_o.dot(self.input_weights)
+            preact += self.cell_state.dot(self.state_weights) + x
+
+            i = nnet.hard_sigmoid(preact[..., :4])
+            f = nnet.hard_sigmoid(preact[..., 4:8])
+            o = nnet.hard_sigmoid(preact[..., 8:12])
+            c_ = T.tanh(preact[..., 12:])
+            state = f * prev_c + i * c_
+            output = T.tanh(o * state)
+
+            return output, state
+
+        z = inputs.dot(self.input_weights) + self.biases
+
+        (y, last_c), updates = theano.scan(step,
+                                           sequences=z,
+                                           outputs_info=(None,
+                                                         T.zeros((self.outshape,)),
+                                                         T.zeros((self.outshape,))))
+        return y
+
+    @property
+    def outshape(self):
+        return self._outshape
 
 
 class _CostBase:
