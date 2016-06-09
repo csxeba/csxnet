@@ -1,12 +1,12 @@
 import numpy as np
-import abc
 
 YAY = 1.0
 NAY = 0.0
 REAL = np.float32
 
+UNKNOWN = "<UNK>"
 
-class _Data(abc.ABC):
+class _Data:
     """Base class for Data Wrappers"""
 
     def __init__(self, source, cross_val, indeps_n, header, sep, end):
@@ -110,7 +110,6 @@ class _Data(abc.ABC):
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
 
-    @abc.abstractmethod
     def do_pca(self, no_factors):
         self.data = self.data.reshape(self.data.shape[0], np.prod(self.data.shape[1:]))
         if self.pca or self.standardized:
@@ -126,7 +125,6 @@ class _Data(abc.ABC):
 
             self.data = self.pca.transform(self.data)
 
-    @abc.abstractmethod
     def standardize(self):
         if self.standardized or self.pca:
             print("Ignoring attempt to standardize already standardized or PCA'd data!")
@@ -139,7 +137,6 @@ class _Data(abc.ABC):
         # self.data = np.nan_to_num(self.data)
         self.standardized = True
 
-    @abc.abstractmethod
     def neurons_required(self):
         pass
 
@@ -295,7 +292,8 @@ class RData(_Data):
 
 
 class Sequence:
-    def __init__(self, source, vocabulary=None):
+    def __init__(self, source, limit=8000, vocabulary=None,
+                 embed=False, embeddim=0, tokenize=False):
 
         self._raw = source
         self._tokenized = False
@@ -303,37 +301,79 @@ class Sequence:
         self._util_tokens = {"unk": "<UNK>",
                              "start": "<START>",
                              "end": "<END>"}
+        self._dictionary = dict()
+        self._vocabulary = vocabulary if vocabulary else {}
 
-        self.vocabulary = {}
         self.data = None
-        self.learning = None
-        self.lindeps = None
+
+        if embed and tokenize:
+            raise RuntimeError("Please choose either embedding or tokenization, not both!")
+
+        if embed or tokenize:
+            if embed and not embeddim:
+                print("Warning! Embedding vector dimension unspecified, assuming 5!")
+                embeddim = 5
+            self.initialize(vocabulary, limit, tokenize, embed, embeddim)
 
     def neurons_required(self):
         return self.data.shape[0]  # TODO: is this right??
 
-    def init_vocabulary(self, vlimit=None, tokenize=True, embed=False, embeddim=5):
-        assert tokenize ^ embed, "Please use either tokenization or embedding!"
+    def initialize(self, vocabulary: dict=None, vlimit: int=None,
+                   tokenize: bool=True, embed: bool=False,
+                   embeddim: int=5):
+        if vocabulary:
+            dtype = list(vocabulary.keys())[0].dtype
+            if "float" in dtype:
+                self._embedded = True
+                self._tokenized = False
+            elif "int" in dtype:
+                self._embedded = False
+                self._tokenized = True
+            else:
+                raise RuntimeError("Wrong vocabulary format!")
+            self._vocabulary = vocabulary
+            return
+
+        if not (tokenize or embed) or (tokenize and embed):
+            v = None
+            while 1:
+                v = input("Please select one:\n(E)mbed\n(T)okenize\n> ")
+                if v[0].lower() in "et":
+                    break
+            tokenize, embed = v == "t", v == "e"
+
+        words = dict()
+        for sentence in self._raw:
+            for word in sentence:
+                if word in words:
+                    words[word] += 1
+                else:
+                    words[word] = 1
+        words = [word for word in sorted(list(words.items()), key=lambda x: x[1], reverse=True)][:vlimit]
+
         if tokenize:
-            self.vocabulary = {label: integer for integer, label in enumerate(list(set(self._raw)))[:vlimit]}
-        if embed:
-            emb = np.random.random((self._raw.shape[0], embeddim))
-            self.vocabulary = {label: array for label, array in list(zip(self._raw, emb))[:vlimit]}
+            emb = np.eye(len(words), len(words))
+        else:
+            emb = np.random.random((len(words), embeddim))
 
-    def embed_data(self, dims=5):
-        assert not (self._tokenized and self._embedded), "Data already tokenized or embedded!"
+        self._vocabulary = {word: array for word, array in zip(words, emb)}
+        self._dictionary = {i: word for i, word in enumerate(words)}
 
-    def tokenize_data(self, limit=None):
-        assert not (self._tokenized and self._embedded), "Data already tokenized or embedded!"
-        questions = np.array([np.array([self.vocabulary[w] for w in sent[:-1]]) for sent in self._raw])
-        targets = np.array([np.array([self.vocabulary[w] for w in sent[:-1]]) for sent in self._raw])
-        return
+        self.data = np.zeros((len(self._raw), emb.shape[1]))
+        for i, sentence in enumerate(self._raw):
+            s = []
+            for word in sentence:
+                if word in self._vocabulary:
+                    s.append(self._vocabulary[word])
+                else:
+                    s.append(UNKNOWN)
+            self.data[i] = np.array(s)
 
-    def _get_vocabulary(self, source, limit):
-        if isinstance(source, np.ndarray):
-            source = source.tolist()
-        return list(set(source))[:limit]
-
+    def get_batch(self):
+        sentences = np.copy(self.data)
+        np.random.shuffle(sentences)
+        for sentence in sentences:
+            yield sentence[:-1], sentence[1:]
 
 
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
