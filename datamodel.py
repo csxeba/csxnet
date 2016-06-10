@@ -6,10 +6,12 @@ REAL = np.float32
 
 UNKNOWN = "<UNK>"
 
+
 class _Data:
     """Base class for Data Wrappers"""
 
     def __init__(self, source, cross_val, indeps_n, header, sep, end):
+
         def parse_source():
             if isinstance(source, np.ndarray):
                 return parsearray(source, header, indeps_n)
@@ -49,10 +51,12 @@ class _Data:
         self.lindeps = None
         self.tindeps = None
         self.pca = None
-        self.N = 0
         self.type = None
+
+        self.N = 0
         self.mean = 0
         self.std = 0
+
         self.standardized = False
 
         headers, data, indeps = parse_source()
@@ -60,7 +64,6 @@ class _Data:
 
         self.headers = headers
         self.data, self.indeps = data, indeps
-        # self._datacopy = np.copy(data)
 
     def table(self, data):
         """Returns a learning table"""
