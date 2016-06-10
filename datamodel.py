@@ -295,9 +295,38 @@ class RData(_Data):
 
 
 class Sequence:
+    def __init__(self, source):
+        self._raw = source
+        self._vocabulary = dict()
+        self.data = None
+
+    def embed(self, dims):
+        self._encode("embed", dims)
+
+    def tokenize(self):
+        self._encode("tokenize")
+
+    def _encode(self, how, dims=0):
+        symbols = list(set(self._raw))
+        if how == "tokenize":
+            embedding = np.eye(len(symbols), len(symbols))
+        elif how == "embed":
+            embedding = np.random.random((len(symbols), dims))
+        else:
+            raise RuntimeError("Something is not right!")
+        self._vocabulary = dict(zip(symbols, embedding))
+        self.data = np.array([self._vocabulary[x] for x in self._raw])
+
+    def get_batch(self, size):
+
+
+
+
+
+class Text(Sequence):
     def __init__(self, source, limit=8000, vocabulary=None,
                  embed=False, embeddim=0, tokenize=False):
-
+        Sequence.__init__(self, source, embed, embeddim, tokenize)
         self._raw = source
         self._tokenized = False
         self._embedded = False
@@ -321,11 +350,17 @@ class Sequence:
     def neurons_required(self):
         return self.data.shape[0]  # TODO: is this right??
 
-    def initialize(self, vocabulary: dict=None, vlimit: int=None,
-                   tokenize: bool=True, embed: bool=False,
+    def initialize(self,
+                   vocabulary: dict=None,
+                   vlimit: int=None,
+                   tokenize: bool=True,
+                   embed: bool=False,
                    embeddim: int=5):
-        if vocabulary:
-            dtype = list(vocabulary.keys())[0].dtype
+
+        def accept_vocabulary():
+            example = list(vocabulary.keys())[0]
+            dtype = example.dtype
+            emb = example.shape[-1]
             if "float" in dtype:
                 self._embedded = True
                 self._tokenized = False
@@ -335,42 +370,59 @@ class Sequence:
             else:
                 raise RuntimeError("Wrong vocabulary format!")
             self._vocabulary = vocabulary
-            return
+            self.data = build_learning_data(emb)
 
-        if not (tokenize or embed) or (tokenize and embed):
+        def ask_for_input():
             v = None
             while 1:
                 v = input("Please select one:\n(E)mbed\n(T)okenize\n> ")
                 if v[0].lower() in "et":
                     break
-            tokenize, embed = v == "t", v == "e"
+            return v == "t", v == "e"
 
-        words = dict()
-        for sentence in self._raw:
-            for word in sentence:
-                if word in words:
-                    words[word] += 1
-                else:
-                    words[word] = 1
-        words = [word for word in sorted(list(words.items()), key=lambda x: x[1], reverse=True)][:vlimit]
+        def build_vocabulary():
+            words = dict()
+            for sentence in self._raw:
+                for word in sentence:
+                    if word in words:
+                        words[word] += 1
+                    else:
+                        words[word] = 1
+            words = [word for word in sorted(list(words.items()), key=lambda x: x[1], reverse=True)][:vlimit]
 
-        if tokenize:
-            emb = np.eye(len(words), len(words))
-        else:
-            emb = np.random.random((len(words), embeddim))
+            if tokenize:
+                emb = np.eye(len(words), len(words))
+            else:
+                emb = np.random.random((len(words), embeddim))
 
-        self._vocabulary = {word: array for word, array in zip(words, emb)}
-        self._dictionary = {i: word for i, word in enumerate(words)}
+            voc = {word: array for word, array in zip(words, emb)}
+            dic = {i: word for i, word in enumerate(words)}
 
-        self.data = np.zeros((len(self._raw), emb.shape[1]))
-        for i, sentence in enumerate(self._raw):
-            s = []
-            for word in sentence:
-                if word in self._vocabulary:
-                    s.append(self._vocabulary[word])
-                else:
-                    s.append(UNKNOWN)
-            self.data[i] = np.array(s)
+            return voc, dic
+
+        def build_learning_data(emb):
+            data = []
+            for i, sentence in enumerate(self._raw):
+                s = []
+                for word in sentence:
+                    if word in self._vocabulary:
+                        s.append(self._vocabulary[word])
+                    else:
+                        s.append(UNKNOWN)
+                data.append(np.array(s))
+            return data
+
+        if vocabulary:
+            accept_vocabulary()
+            return
+
+        if not (tokenize or embed) or (tokenize and embed):
+            tokenize, embed = ask_for_input()
+
+        self._vocabulary, self._dictionary = build_vocabulary()
+
+        embdim = embeddim if embed else vlimit
+        self.data = build_learning_data(embdim)
 
     def get_batch(self):
         sentences = np.copy(self.data)
