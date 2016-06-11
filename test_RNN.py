@@ -1,11 +1,9 @@
 import sys
-import csv
-import itertools
+
+from thNets.thModels import ThNetDynamic
 
 from datamodel import Sequence
-from brainforge.Architecture.NNModel import RNN
-from brainforge.Utility.cost import Xent
-from brainforge.Utility.activations import *
+
 
 vocabulary_size = 8000
 unknown_token = "<UNK>"
@@ -22,15 +20,12 @@ pca = 0
 time = 7
 neurons = 4
 eta = 0.3
-cost = Xent
-act = Tanh
-
-netargs = (neurons, eta, cost, act)
 
 
-def getrnn(data, args):
-    hiddens, lrate, costfn, hidact = args
-    net = RNN(hiddens, data, lrate, costfn, hidact)
+def getrnn(data):
+    net = ThNetDynamic(data, eta, 0.0, 0.0, 0.0, "Xent")
+    net.add_rlayer(10)
+    net.finalize()
     return net
 
 
@@ -89,16 +84,20 @@ def pull_reddit_data2(path):
              if (line not in ("", " ", "\n", "\n\n", "\n\n\n")) and len(line) > 10]
     lines = [line.split(" ") for line in lines]
     lines = [[word for word in line if word] for line in lines]
+    raw = []
+    for line in lines:
+        raw += line
     print("We have {} sentences!".format(len(lines)))
 
-    data = Sequence(lines, embed=True, tokenize=False, embeddim=5)
+    data = Sequence(raw)
+    data.embed(5)
     return data
 
 
-def main(nargs):
+def main():
     data = pull_reddit_data2(datapath)
-    net = getrnn(data, nargs)
+    net = getrnn(data)
     net.learn(time)
 
 if __name__ == '__main__':
-    main(netargs)
+    main()

@@ -76,10 +76,10 @@ class ThNetDynamic(NeuralNetworkBase):
 
         def define_cost():
             # Define regularization terms
-            l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
-            l1 *= self.lmbd1 / (self.data.N / 2)
-            l2 = sum([T.exp2(layer.weights).sum() for layer in self.layers])
-            l2 *= self.lmbd2 / (self.data.N * 2)
+            # l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
+            # l1 *= self.lmbd1 / (self.data.N / 2)
+            # l2 = sum([T.exp2(layer.weights).sum() for layer in self.layers])
+            # l2 *= self.lmbd2 / (self.data.N * 2)
 
             # Build string for architecture display
             chain = "Cost: " + self.cost
@@ -106,7 +106,7 @@ class ThNetDynamic(NeuralNetworkBase):
             else:
                 raise RuntimeError("Cost function {} not supported!".format(self.cost))
 
-            cost = cost + l1 + l2
+            # cost = cost + l1 + l2
 
             return cost
 
@@ -135,12 +135,14 @@ class ThNetDynamic(NeuralNetworkBase):
                                         name="_predict")
         self.finalized = True
 
-    def learn(self, batch_size):
+    def learn(self, batch_size, verbose=False):
         if not self.finalized:
             raise RuntimeError("Unfinalized network!")
         for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
             m = float(questions.shape[0])
             self._fit(questions, targets, m)
+            if verbose:
+                print("Done {} batches!".format(i))
         self.age += 1
 
     def evaluate(self, on="tesing"):

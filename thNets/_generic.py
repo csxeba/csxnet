@@ -18,9 +18,9 @@ class _ThLayerBase(abc.ABC):
     @abc.abstractmethod
     def output(self, intputs, mint): pass
 
-    @abc.abstractmethod
     @property
-    def outshape(self): pass
+    def outshape(self):
+        return None
 
 
 class _CostBase:

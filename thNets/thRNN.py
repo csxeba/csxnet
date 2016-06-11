@@ -20,19 +20,20 @@ class ThRLayer(_ThLayerBase):
         )
 
         self.truncate = truncation
+        self.params = self.input_weights, self.state_weights, self.biases
 
     def output(self, inputs, mint):
+        U, W, b = self.input_weights, self.state_weights, self.biases
 
         def step(x_t, y_t_1):
-            z = x_t.dot(self.input_weights) + y_t_1.dot(self.state_weights) + self.biases
+            z = x_t.dot(U) + y_t_1.dot(W) + b
             y_t = T.tanh(z)
             return y_t
 
         y, updates = theano.scan(step,
                                  sequences=inputs,
                                  truncate_gradient=self.truncate,
-                                 outputs_info=[None,
-                                               np.zeros((self.outshape,), dtype=floatX)])
+                                 outputs_info=[T.zeros_like(inputs)])
         return y
 
     @property
@@ -58,7 +59,8 @@ class ThLSTM(_ThLayerBase):
         self.cell_state = theano.shared(
             np.zeros(neurons, neurons).astype(floatX), name="Cell State")
 
-        self.truncate = 10
+        self.truncate = truncation
+        self.params = self.input_weights, self.state_weights, self.biases
 
     def output(self, inputs, mint):
 

@@ -299,28 +299,52 @@ class Sequence:
         self._raw = source
         self._vocabulary = dict()
         self.data = None
+        self.embedded = False
+        self.tokenized = False
+        self.N = len(self._raw)
 
     def embed(self, dims):
+        assert not (self.tokenized or self.embedded)
         self._encode("embed", dims)
+        self.embedded = True
 
     def tokenize(self):
+        assert not (self.tokenized or self.embedded)
         self._encode("tokenize")
+        self.tokenized = True
 
     def _encode(self, how, dims=0):
         symbols = list(set(self._raw))
         if how == "tokenize":
             embedding = np.eye(len(symbols), len(symbols))
         elif how == "embed":
+            assert dims, "Dims unspecified!"
             embedding = np.random.random((len(symbols), dims))
         else:
             raise RuntimeError("Something is not right!")
         self._vocabulary = dict(zip(symbols, embedding))
         self.data = np.array([self._vocabulary[x] for x in self._raw])
 
-    def get_batch(self, size):
+    def table(self):
+        return ([word[1:] for word in self._raw],
+                [word[:-1] for word in self._raw])
 
+    def batchgen(self, size):
+        assert self.embedded ^ self.tokenized
+        for step in range(self.data.shape[0] // size):
+            start = step * size
+            end = start + size
+            if end > self.data.shape[0]:
+                end = self.data.shape[0]
+            if start >= self.data.shape[0]:
+                break
 
+            sentence = self.data[start:end]
 
+            yield sentence[:-1], sentence[1:]
+
+    def neurons_required(self):
+        return self.data.shape[-1], self.data.shape[-1]
 
 
 class Text(Sequence):
@@ -424,7 +448,7 @@ class Text(Sequence):
         embdim = embeddim if embed else vlimit
         self.data = build_learning_data(embdim)
 
-    def get_batch(self):
+    def batchgen(self, size=None):
         sentences = np.copy(self.data)
         np.random.shuffle(sentences)
         for sentence in sentences:
