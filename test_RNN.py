@@ -24,7 +24,8 @@ eta = 0.3
 
 def getrnn(data):
     net = ThNetDynamic(data, eta, 0.0, 0.0, 0.0, "Xent")
-    net.add_rlayer(10)
+    net.add_lstm(10)
+    print("Compiling network...")
     net.finalize()
     return net
 
@@ -97,6 +98,7 @@ def pull_reddit_data2(path):
 def main():
     data = pull_reddit_data2(datapath)
     net = getrnn(data)
+    print("Teaching network...")
     net.learn(time)
 
 if __name__ == '__main__':

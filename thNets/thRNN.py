@@ -57,7 +57,7 @@ class ThLSTM(_ThLayerBase):
             np.zeros((4, neurons), dtype=floatX), name="Biases")
 
         self.cell_state = theano.shared(
-            np.zeros(neurons, neurons).astype(floatX), name="Cell State")
+            np.zeros((neurons, neurons), dtype=floatX), name="Cell State")
 
         self.truncate = truncation
         self.params = self.input_weights, self.state_weights, self.biases
@@ -68,10 +68,10 @@ class ThLSTM(_ThLayerBase):
             preact = prev_o.dot(self.input_weights)
             preact += self.cell_state.dot(self.state_weights) + x
 
-            i = nnet.hard_sigmoid(preact[..., :4])
-            f = nnet.hard_sigmoid(preact[..., 4:8])
-            o = nnet.hard_sigmoid(preact[..., 8:12])
-            c_ = T.tanh(preact[..., 12:])
+            i = nnet.hard_sigmoid(preact[:, :4])
+            f = nnet.hard_sigmoid(preact[:, 4:8])
+            o = nnet.hard_sigmoid(preact[:, 8:12])
+            c_ = T.tanh(preact[:, 12:])
             state = f * prev_c + i * c_
             output = T.tanh(o * state)
 
@@ -82,8 +82,7 @@ class ThLSTM(_ThLayerBase):
         (y, last_c), updates = theano.scan(step,
                                            sequences=z,
                                            truncate_gradient=self.truncate,
-                                           outputs_info=(None,
-                                                         T.zeros((self.outshape,)),
+                                           outputs_info=(T.zeros((self.outshape,)),
                                                          T.zeros((self.outshape,))))
         return y
 

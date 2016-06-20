@@ -7,7 +7,7 @@ from brainforge.Utility.cost import Xent, MSE
 from datamodel import CData, mnist_to_lt
 
 
-datapath = "D:/Data/learning_tables/" if sys.platform == 'win32' else "/data/Prog/data/learning_tables/"
+datapath = "D:/Data/misc/" if sys.platform == 'win32' else "/data/Prog/data/misc/"
 log = ""
 
 
@@ -33,6 +33,27 @@ def test_ANN():
         print("Acc: T: {} L: {}".format(ont, onl))
         global log
         log += "E:{}\nC:{}\nT:{}\nL:{}\n\n".format(epoch+1, net.error, ont, onl)
+
+
+def keras_vs_mnist():
+    from keras.models import Sequential
+    from keras.layers.core import Dense, Activation
+
+    data = CData(mnist_to_lt(datapath + "mnist.pkl.gz", reshape=False))
+    fanin, outshape = data.neurons_required()
+
+    net = Sequential()
+    net.add(Dense(output_dim=120, input_dim=np.prod(fanin)))
+    net.add(Activation("tanh"))
+    net.add(Dense(output_dim=outshape))
+    net.add(Activation("softmax"))
+
+    net.compile(optimizer="sgd", loss="categorical_crossentropy")
+
+    learnX, learnY = data.table("learning")
+    testX, testY = data.table("testing", False)
+    net.fit(learnX, learnY, batch_size=10, nb_epoch=30, validation_data=(testX, testY),
+            show_accuracy=True)
 
 
 def xor():
@@ -62,7 +83,7 @@ def xor():
 
 
 if __name__ == '__main__':
-    test_ANN()
-    logfl = open("log.txt", "w")
-    logfl.write(log)
-    logfl.close()
+    keras_vs_mnist()
+    # logfl = open("log.txt", "w")
+    # logfl.write(log)
+    # logfl.close()

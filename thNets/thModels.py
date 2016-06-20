@@ -6,7 +6,12 @@ class ThNetDynamic(NeuralNetworkBase):
     def __init__(self, data, eta, lmbd1, lmbd2, mu, cost):
         NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
 
-        self.inputs = T.tensor4("Inputs")
+        inshape, outshape = data.neurons_required()
+
+        if isinstance(inshape, int):
+            inshape = (inshape,)
+
+        self.inputs = T.matrix("Inputs") if len(inshape) == 1 else T.tensor4("Inputs")
         self.targets = T.matrix("Targets")
         self.m = T.scalar("m", dtype="float32")
         self.mint = T.scalar("mint", dtype="int32")

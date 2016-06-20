@@ -319,7 +319,7 @@ class Sequence:
             embedding = np.eye(len(symbols), len(symbols))
         elif how == "embed":
             assert dims, "Dims unspecified!"
-            embedding = np.random.random((len(symbols), dims))
+            embedding = np.random.random((len(symbols), dims)).astype(REAL)
         else:
             raise RuntimeError("Something is not right!")
         self._vocabulary = dict(zip(symbols, embedding))
