@@ -18,7 +18,7 @@ def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
 
 def euclidean(itr: np.ndarray, target: np.ndarray):
     """Distance of two (or more) vectors in euclidean space"""
-    print("Warning, nputils.euclidean() is untested!")
+    # print("Warning, nputils.euclidean() is untested!")
     return np.sqrt(np.square(np.sum(itr - target, axis=0)))
 
 
