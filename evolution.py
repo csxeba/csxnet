@@ -18,7 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>..
 import time
 import random
 
-from csxnet.utilities import avg, feature_scale
+from utilities import avg, feature_scale
 
 
 # I hereby state that
@@ -269,7 +269,6 @@ def gene_pool(pop):
 def describe(pop, show=0):
     """Print out useful information about a population"""
     showme = sorted(pop.individuals, key=lambda i: i.fitness)[:show]
-    print("------------------------")
     for ind in showme:
         print("Ind:", str(ind.genome), str(ind.fitness))
     print("Size:\t", len(pop.individuals), sep="\t")

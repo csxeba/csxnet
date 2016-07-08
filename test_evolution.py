@@ -19,10 +19,10 @@ def test_evolution():
     max_offsprings = 3
     epochs = 1000
     verbose = 1
-    fitness = fn2
+    fitness = fn1
     genome_len = 10
 
-    ranges = [(0, 30) for _ in range(genome_len)]
+    ranges = [(0, 100) for _ in range(genome_len)]
 
     demo_pop = Population(limit=limit,
                           survivors_rate=survivors,
@@ -30,7 +30,9 @@ def test_evolution():
                           mutation_rate=mutation_rate,
                           fitness_function=fitness,
                           max_offsprings=max_offsprings,
-                          ranges=ranges)
+                          ranges=ranges,
+                          parallel=True)
+
     print("Population created with {} individuals".format(len(demo_pop.individuals)))
     describe(demo_pop, 3)
     demo_pop.run(epochs, verbose)
