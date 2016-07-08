@@ -13,7 +13,7 @@ ltpath = miscroot + "mnist.pkl.gz"
 mnist = CData(mnist_to_lt(ltpath, reshape=False))
 mnist.standardize()
 
-network = Sequential(name="Kerberos")
+network = Sequential()
 network.add(Dense(input_dim=784, output_dim=120, activation="tanh"))
 network.add(Dense(input_dim=120, output_dim=10, activation="softmax"))
 network.compile(optimizer="sgd", loss="categorical_crossentropy")

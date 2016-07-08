@@ -22,7 +22,7 @@ def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
 def euclidean(itr: np.ndarray, target: np.ndarray):
     """Distance of points in euclidean space"""
     # print("Warning, nputils.euclidean() is untested!")
-    return np.sqrt(np.square(np.sum(itr - target, axis=0)))
+    return np.sqrt(np.sum(np.square(itr - target), axis=0))
 
 
 def haversine(coords1: np.ndarray, coords2: np.ndarray):
@@ -61,10 +61,13 @@ def combination(A, W, b, scale, actfn):
 
 
 class Test:
-
     def __init__(self):
+        print("\n<<< <<< TESTING |nputils.py| >>> >>>")
         self.featscale()
         self.euclidean()
+        self.ravel_to_matrix()
+        self.combination()
+        print("<<< <<< ALL TEST PASSED @ |nputils.py| >>> >>>\n")
 
     @staticmethod
     def featscale():
@@ -74,6 +77,7 @@ class Test:
                       [2.0, 2.0, 2.0, 2.0]])
         output = featscale(x, ufctr=(0, 2))
         assert np.all(np.equal(y, output)), "Feature scale test failed!"
+        print("<<< Test @ featscale passed! >>>")
 
     @staticmethod
     def euclidean():
@@ -87,10 +91,50 @@ class Test:
         def matrix():
             x1 = np.zeros((2, 2)).astype(float)
             x2 = np.ones((2, 2)).astype(float)
-            y = np.sqrt(2) * 4
+            y = np.sqrt(2) * 2
             output = euclidean(x1, x2).sum()
             assert output == y, "Test failed @ euclidean of matrices!"
 
         vector()
         matrix()
+        print("<<< Test @ euclidean passed! >>>")
 
+    @staticmethod
+    def ravel_to_matrix():
+        x = np.arange(2*3*4*5*6).reshape((2, 3, 4, 5, 6))
+        yshape = (2, 3*4*5*6)
+        output = ravel_to_matrix(x).shape
+        assert np.all(np.equal(yshape, output)), "Test failed @ ravel_to_matrix!"
+        print("<<< Test @ ravel_to_matrix passed! >>>")
+
+    @staticmethod
+    def combination():
+        def vector_times_scalar():
+            x = np.arange(10)
+            w = 2
+            y = np.arange(0, 20, 2)
+            output = combination(x, w, 0.0, 1.0, lambda z: z)
+            assert np.all(np.equal(y, output)), "Test failed @ combination of vector with scalar!"
+
+        def vector_times_vector():
+            x = np.ones((10,)) * 2
+            w = np.arange(10)
+            y = float(np.arange(0, 20, 2).sum())
+            output = combination(x, w, 0.0, 1.0, lambda z: z)
+            assert output == y, "Test failed @ combination of vector with vector!"
+
+        def matrix_times_matrix():
+            x = np.arange(12).reshape(3, 4)
+            w = np.arange(16).reshape(4, 4)
+            y = np.dot(x, w)
+            output = combination(x, w, 0.0, 1.0, lambda z: z)
+            assert np.all(np.equal(y, output)), "Test failed @ combination of matrix with matrix!"
+
+        vector_times_scalar()
+        vector_times_vector()
+        matrix_times_matrix()
+        print("<<< Test @ combination passed! >>>")
+
+
+if __name__ == '__main__':
+    Test()
