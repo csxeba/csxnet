@@ -18,7 +18,7 @@ def test_evolution():
     mutation_rate = 0.01
     max_offsprings = 3
     epochs = 1000
-    verbose = 0
+    verbose = 1
     fitness = fn2
     genome_len = 10
 
