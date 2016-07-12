@@ -88,6 +88,14 @@ class Test:
             output = euclidean(x1, x2)
             assert output == y, "Test failed @ euclidean of vectors!"
 
+        def vector2():
+            x1 = np.array([15.1, 0.5, 13.45, 0.0, 187.0, 27.0, 18.0, 254.0, 0.8, 7.2])
+            x2 = np.array([11.6258517, 4.04255166, 3.51548475, 1.66430278, 266.139903, 146.10648500000002,
+                           111.96102, 18.085486500000002, 15.335202500000001, 5.7048872])
+            y = 292
+            output = int(euclidean(x1, x2))
+            assert output == y, "Test fauiled @ euclideon of vectors #2!"
+
         def matrix():
             x1 = np.zeros((2, 2)).astype(float)
             x2 = np.ones((2, 2)).astype(float)
@@ -96,6 +104,7 @@ class Test:
             assert output == y, "Test failed @ euclidean of matrices!"
 
         vector()
+        vector2()
         matrix()
         print("<<< Test @ euclidean passed! >>>")
 
