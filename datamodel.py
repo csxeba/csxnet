@@ -61,6 +61,7 @@ class _Data:
 
         headers, data, indeps = parse_source()
         self.n_testing = determine_no_testing()
+        self._crossval = cross_val
 
         self.headers = headers
         self.data, self.indeps = data, indeps
@@ -103,6 +104,8 @@ class _Data:
             yield out
 
     def split_data(self, shuff=True):
+        n = self.data.shape[0]
+        self.n_testing = int(n * self._crossval)
         if shuffle:
             dat, ind = shuffle((self.data, self.indeps))
         else:
@@ -229,6 +232,22 @@ class CData(_Data):
         """Returns the required number of input and output neurons
          to process this myData.."""
         return self.data[0].shape, len(self.categories)
+
+    def average_replications(self):
+        replications = {}
+        for i, indep in enumerate(self.indeps):
+            if indep in replications:
+                replications[indep].append(i)
+            else:
+                replications[indep] = [i]
+
+        newindeps = np.fromiter(replications.keys(), dtype="<U4")
+        newdata = {indep: np.mean(self.data[replicas], axis=0)
+                   for indep, replicas in replications.items()}
+        newdata = np.array([newdata[indep] for indep in newindeps])
+        self.indeps = newindeps
+        self.data = newdata
+        self.split_data()
 
 
 class RData(_Data):
@@ -458,7 +477,7 @@ class Text(Sequence):
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
     file = open(source, encoding='utf8')
     text = file.read()
-    text.replace(",", ".")
+    text = text.replace(",", ".")
     file.close()
 
     lines = text.split(end)

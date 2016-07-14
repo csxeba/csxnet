@@ -60,6 +60,24 @@ def combination(A, W, b, scale, actfn):
     return actfn(A.dot(W) + b) * scale
 
 
+def avgpool(line, e, stride=None):
+    """
+    Pool absorbance values to reduce dimensionality.
+    e := int, the size of the pooling filter
+    """
+
+    if not stride: stride = e
+    output = np.array([])
+    outsize = int(((len(line) - e)/stride)-1)
+    for n in range(outsize):
+        start = n*stride
+        end = start + e
+        avg = np.average(line[start:end])
+        output = np.append(output, avg)
+
+    return output
+
+
 class Test:
     def __init__(self):
         print("\n<<< <<< TESTING |nputils.py| >>> >>>")
