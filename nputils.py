@@ -60,22 +60,27 @@ def combination(A, W, b, scale, actfn):
     return actfn(A.dot(W) + b) * scale
 
 
-def avgpool(line, e, stride=None):
+def avgpool(array, e, stride=None):
     """
     Pool absorbance values to reduce dimensionality.
     e := int, the size of the pooling filter
     """
 
-    if not stride: stride = e
+    if not stride:
+        stride = e
     output = np.array([])
-    outsize = int(((len(line) - e)/stride)-1)
+    outsize = int(((len(array) - e) / stride) - 1)
     for n in range(outsize):
         start = n*stride
         end = start + e
-        avg = np.average(line[start:end])
+        avg = np.average(array[start:end])
         output = np.append(output, avg)
 
     return output
+
+
+def subsample(array, step):
+    return array[np.arange(step)]
 
 
 class Test:
@@ -85,6 +90,7 @@ class Test:
         self.euclidean()
         self.ravel_to_matrix()
         self.combination()
+        self.avgpool()
         print("<<< <<< ALL TEST PASSED @ |nputils.py| >>> >>>\n")
 
     @staticmethod
@@ -162,6 +168,10 @@ class Test:
         matrix_times_matrix()
         print("<<< Test @ combination passed! >>>")
 
+    @staticmethod
+    def avgpool():
+        x = np.zeros((100,))
+        x[np.arange(50)]
 
 if __name__ == '__main__':
     Test()
