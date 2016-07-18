@@ -60,6 +60,18 @@ def combination(A, W, b, scale, actfn):
     return actfn(A.dot(W) + b) * scale
 
 
+def avg2pool(matrix):
+    """Does average-pooling with stride and filter size = 2"""
+    if ((matrix.shape[1] - 2) % 2) != 0:
+        raise RuntimeError("Non-integer output shape!")
+    outshape = matrix.shape[0], (matrix.shape[1] - 2) // 2
+
+    avg = matrix[:, ::2][:outshape[1]] + \
+        matrix[:, 1::2][:outshape[1]]
+    avg /= 2
+    return avg
+
+
 def avgpool(array, e, stride=None):
     """
     Pool absorbance values to reduce dimensionality.
@@ -80,7 +92,7 @@ def avgpool(array, e, stride=None):
 
 
 def subsample(array, step):
-    return array[np.arange(step)]
+    return array[..., ::step]
 
 
 class Test:
@@ -172,6 +184,7 @@ class Test:
     def avgpool():
         x = np.zeros((100,))
         x[np.arange(50)]
+        # TODO: finish this
 
 if __name__ == '__main__':
     Test()
