@@ -19,6 +19,22 @@ def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
         return output, dfctr, ufctr
 
 
+def standardize(X: np.ndarray):
+    mean, std = X.mean(axis=0), X.std(axis=0) + 1e-6
+    return (X - mean) / std
+
+
+def pca_transform(X: np.ndarray, factors, whiten=False):
+    from sklearn.decomposition import PCA
+
+    print("Fitting PCA...")
+    pca = PCA(n_components=factors, whiten=whiten)
+    data = pca.fit_transform(ravel_to_matrix(X))
+    if data.shape[1] != factors and data.shape[1] == data.shape[0]:
+        print("Warning! Couldn't calculate covariance matrix, used generalized inverse instead!")
+    return data
+
+
 def euclidean(itr: np.ndarray, target: np.ndarray):
     """Distance of points in euclidean space"""
     # print("Warning, nputils.euclidean() is untested!")
@@ -46,8 +62,7 @@ def ravel_to_matrix(A):
     """Converts an ndarray to a 2d array (matrix) by keeping the first dimension as the rows
     and flattening all the other dimensions to columns"""
     A = np.atleast_2d(A)
-    A = A.reshape(A.shape[0], np.prod(A.shape[1:]))
-    return A
+    return A.reshape(A.shape[0], np.prod(A.shape[1:]))
 
 
 def logit(Z: np.ndarray):

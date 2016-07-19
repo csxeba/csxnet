@@ -2,7 +2,7 @@ import sys
 import random
 
 
-class Roots:
+class _Roots:
     def __init__(self):
         self.dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
         self.miscroot = self.dataroot + "misc/"
@@ -28,6 +28,7 @@ class Roots:
     def __call__(self, item):
         return self.__getitem__(item)
 
+roots = _Roots()
 
 def euclidean(itr, target):
     import math

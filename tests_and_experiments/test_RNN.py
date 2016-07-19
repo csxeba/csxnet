@@ -1,8 +1,8 @@
 import sys
 
-from thNets.thModels import ThNetDynamic
+# from csxnet.thNets.thModels import ThNetDynamic
 
-from datamodel import Sequence
+from csxnet.datamodel import Sequence
 
 
 vocabulary_size = 8000
@@ -22,11 +22,16 @@ neurons = 4
 eta = 0.3
 
 
-def getrnn(data):
-    net = ThNetDynamic(data, eta, 0.0, 0.0, 0.0, "Xent")
-    net.add_lstm(10)
-    print("Compiling network...")
-    net.finalize()
+def getrnn(data: Sequence):
+    from keras.models import Sequential
+    from keras.layers.core import Dense
+    from keras.layers.recurrent import LSTM
+
+    net = Sequential()
+    net.add(LSTM(input_dim=data.neurons_required()[0], output_dim=30))
+    net.add(Dense(output_dim=5))
+    net.compile("")
+
     return net
 
 

@@ -1,6 +1,6 @@
 import time
 
-from evolution import Population, describe
+from csxnet.evolution import Population, describe
 
 
 def test_evolution():

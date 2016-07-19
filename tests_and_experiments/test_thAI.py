@@ -1,7 +1,7 @@
 import sys
 
-from thNets.thModels import ThNetDynamic
-from datamodel import CData, mnist_to_lt
+from csxnet.thNets.thModels import ThNetDynamic
+from csxnet.datamodel import CData, mnist_to_lt
 
 dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
 miscroot = dataroot + "misc/"

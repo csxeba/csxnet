@@ -1,10 +1,10 @@
 import sys
 import time
 
-from brainforge.Architecture.NNModel import Network
-from brainforge.Utility.activations import *
-from brainforge.Utility.cost import Xent, MSE
-from datamodel import CData, mnist_to_lt
+from csxnet.brainforge.Architecture.NNModel import Network
+from csxnet.brainforge.Utility.activations import *
+from csxnet.brainforge.Utility.cost import Xent, MSE
+from csxnet.datamodel import CData, mnist_to_lt
 
 
 datapath = "D:/Data/misc/" if sys.platform == 'win32' else "/data/Prog/data/misc/"

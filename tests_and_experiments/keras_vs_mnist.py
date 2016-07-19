@@ -2,7 +2,7 @@ import sys
 
 from keras.models import Sequential
 from keras.layers.core import Dense
-from datamodel import mnist_to_lt, CData
+from csxnet.datamodel import mnist_to_lt, CData
 
 
 dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
