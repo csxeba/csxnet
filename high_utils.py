@@ -3,10 +3,10 @@ like SciPy, sklearn, Theano, Keras, etc."""
 
 
 import numpy as np
-from nputils import ravel_to_matrix as rtm
+from .nputils import ravel_to_matrix as rtm
 
 
-def autoencode(X, features):
+def autoencode(X, features, get_model=False):
     from keras.models import Sequential
     from keras.layers.core import Dense
 
@@ -25,9 +25,10 @@ def autoencode(X, features):
     print("Training on data...")
     encoder.fit(data, data, batch_size=10, nb_epoch=30)
     weights, biases = encoder.layers[0].get_weights()
+    if get_model:
+        return weights, biases, "tanh"
 
-    transformed = data.dot(weights) + biases
-
+    transformed = np.tanh(data.dot(weights) + biases)
     return transformed
 
 
