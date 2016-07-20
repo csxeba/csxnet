@@ -1,4 +1,9 @@
+"""Utility functions that use the NumPy library"""
+
 import numpy as np
+
+
+floatX = "float32"
 
 
 def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
@@ -110,6 +115,40 @@ def subsample(array, step):
     return array[..., ::step]
 
 
+def export_to_file(path: str, data: np.ndarray, labels=None, headers=None):
+    outchain = ""
+    if headers is not None:
+        outchain = "MA\t"
+        outchain += "\t".join(headers) + "\n"
+    for i in range(data.shape[0]):
+        if labels is not None:
+            outchain += str(labels[i]) + "\t"
+        outchain += "\t".join(data[i].astype("<U11")) + "\n"
+    with open(path, "w", encoding="utf8") as outfl:
+        outfl.write(outchain.replace(".", ","))
+        outfl.close()
+
+
+def import_from_csv(path: str, labels: int=1, headers: bool=True, sep="\t", end="\n",
+                    floatX="float32", encoding=None):
+    label, header = None, None
+    with open(path, "r", encoding=encoding) as file:
+        data = file.read()
+        file.close()
+    assert sep != ",", "For compatibility purposes with the Hungarian locales, ',' separator is not allowed :("
+    data = data.replace(",", ".")
+    data = data.split(end)
+    data = np.array([line.split(sep) for line in data if line])
+    if headers:
+        header = data[0]
+        data = data[1:]
+    if labels:
+        label = data[..., :labels]
+        data = data[..., labels:]
+    data = data.astype(floatX)
+    return data, label, header
+
+
 class Test:
     def __init__(self):
         print("\n<<< <<< TESTING |nputils.py| >>> >>>")
@@ -117,7 +156,6 @@ class Test:
         self.euclidean()
         self.ravel_to_matrix()
         self.combination()
-        self.avgpool()
         print("<<< <<< ALL TEST PASSED @ |nputils.py| >>> >>>\n")
 
     @staticmethod
@@ -198,8 +236,8 @@ class Test:
     @staticmethod
     def avgpool():
         x = np.zeros((100,))
-        x[np.arange(50)]
         # TODO: finish this
+
 
 if __name__ == '__main__':
     Test()

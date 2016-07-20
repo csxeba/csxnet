@@ -1,22 +1,27 @@
-import sys
-import random
+"""Pure python and python stdlib based utilities are here.
+This module aims to be PyPy compatible."""
 
 
 class _Roots:
     def __init__(self):
-        self.dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
+        import sys
+        win = sys.platform == "win32"
+        self.dataroot = "D:/Data/" if win else "/data/Prog/data/"
         self.miscroot = self.dataroot + "misc/"
         self.rawroot = self.dataroot + "raw/"
         self.ltroot = self.dataroot + "lts/"
         self.csvroot = self.dataroot + "csvs/"
         self.nirroot = self.rawroot + "nir/"
+        self.tmproot = "E:/tmp/" if win else "/run/media/csa/ramdisk/"
+
         self._dict = {"data": self.dataroot,
                       "raw": self.rawroot,
                       "lt": self.ltroot,
                       "lts": self.ltroot,
                       "csv": self.csvroot,
                       "csvs": self.csvroot,
-                      "nir": self.nirroot}
+                      "nir": self.nirroot,
+                      "tmp": self.tmproot}
 
     def __getitem__(self, item):
         if not isinstance(item, str):
@@ -30,6 +35,7 @@ class _Roots:
 
 roots = _Roots()
 
+
 def euclidean(itr, target):
     import math
     assert len(itr) == len(target), "Can't perform distance calculation"
@@ -37,26 +43,22 @@ def euclidean(itr, target):
     return res
 
 
-def pull(lst: list, key: callable):
-    """Filters elements, than returns (trues, falses)"""
-    trues = list(filter(key, lst))
-    falses = [elem for elem in lst if elem not in trues]
-    return trues, falses
-    
-
-def chooseN(iterable, N=1):
-    """Choose an element randomly from an iterable and remove the element"""
-    return [choose(iterable) for _ in range(N)]
+def chooseN(iterable: list, N=1):
+    """Choose N elements randomly from an iterable and remove the element"""
+    return [choose(iterable) for _ in range(N)]  #TODO: untested
 
 
-def choose(iterable):
+def choose(iterable: list):
+    """Chooses an element randomly from a list, then removes it from the list"""
+    import random
     out = random.choice(iterable)
     iterable.remove(out)
-    return out
+    return out  # TODO: untested
 
 
 def feature_scale(iterable, from_=0, to=1):
-    """Scales the elements of a vector between from_ and to"""
+    """Scales the elements of a vector between from_ and to uniformly"""
+    # TODO: untested
     if max(iterable) + min(iterable) == 0:
         # print("Feature scale warning: every value is 0 in iterable!")
         return type(iterable)([from_ for _ in range(len(iterable))])
@@ -75,16 +77,8 @@ def avg(iterable):
     return sum(iterable) / len(iterable)
 
 
-def plot(*lsts):
-    import matplotlib.pyplot as plt
-    for fn, lst in enumerate(lsts):
-        plt.subplot(len(lsts), 1, fn + 1)
-        plt.plot(lst)
-    plt.show()
-
-
 def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
-    import numpy as np
+    """Extracts a data table from a file"""
     with open(path) as f:
         lines = f.read().split(end)
         f.close()
@@ -96,6 +90,5 @@ def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
     if labels is not None:
         labels = [ln[0] for ln in lines]
         lines = [ln[1:] for ln in lines]
-    lines = np.array(lines, dtype="float32")
 
     return lines, header, labels

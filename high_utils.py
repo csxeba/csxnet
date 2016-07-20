@@ -6,24 +6,47 @@ import numpy as np
 from .nputils import ravel_to_matrix as rtm
 
 
-def autoencode(X, features, get_model=False):
+def autoencode(X: np.ndarray, features: int or tuple, get_model: bool=False) -> np.ndarray:
     from keras.models import Sequential
     from keras.layers.core import Dense
 
     from csxnet.nputils import standardize
 
+    def sanitize_params(ftrs):
+        if isinstance(ftrs, int):
+            ftrs = (ftrs, None)
+        elif len(ftrs) < 2:
+            ftrs = (ftrs[0], None)
+        return ftrs
+
+    def build_encoder(ftrs, dims):
+        enc = Sequential()
+        enc.add(Dense(input_dim=dims, output_dim=ftrs[0],
+                      activation="tanh"))
+        for ftr in ftrs[1:]:
+            if ftr is None:
+                break
+            enc.add(Dense(output_dim=ftr, activation="tanh"))
+        for ftr in ftrs[-1::-1]:
+            if ftr is None:
+                continue
+            enc.add(Dense(output_dim=ftr, activation="tanh"))
+        enc.add(Dense(output_dim=dims, activation="tanh"))
+        enc.compile("adadelta", loss="mse")
+        return enc
+
     print("Creating autoencoder model...")
+
+    features = sanitize_params(features)
 
     data = standardize(rtm(X))
     dimensions = data.shape[1]
 
-    encoder = Sequential()
-    encoder.add(Dense(input_dim=dimensions, output_dim=features,
-                      activation="tanh"))
-    encoder.add(Dense(output_dim=dimensions, activation="tanh"))
-    encoder.compile("adadelta", loss="mse")
+    encoder = build_encoder(features, dimensions)
+
     print("Training on data...")
     encoder.fit(data, data, batch_size=10, nb_epoch=30)
+
     weights, biases = encoder.layers[0].get_weights()
     if get_model:
         return weights, biases, "tanh"
@@ -32,7 +55,7 @@ def autoencode(X, features, get_model=False):
     return transformed
 
 
-def pca_transform(X: np.ndarray, factors, whiten=False):
+def pca_transform(X: np.ndarray, factors: int, whiten: bool=False) -> np.ndarray:
     from sklearn.decomposition import PCA
 
     print("Fitting PCA...")
@@ -41,3 +64,11 @@ def pca_transform(X: np.ndarray, factors, whiten=False):
     if data.shape[1] != factors and data.shape[1] == data.shape[0]:
         print("Warning! Couldn't calculate covariance matrix, used generalized inverse instead!")
     return data
+
+
+def plot(*lsts):
+    import matplotlib.pyplot as plt
+    for fn, lst in enumerate(lsts):
+        plt.subplot(len(lsts), 1, fn + 1)
+        plt.plot(lst)
+    plt.show()

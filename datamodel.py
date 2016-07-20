@@ -1,8 +1,9 @@
 import numpy as np
 
+from .nputils import floatX
+
 YAY = 1.0
 NAY = 0.0
-REAL = np.float32
 
 UNKNOWN = "<UNK>"
 
@@ -50,7 +51,8 @@ class _Data:
         self.testing = None
         self.lindeps = None
         self.tindeps = None
-        self.pca = None
+        self._pca = None
+        self._autoencoder = None
         self.type = None
 
         self.N = 0
@@ -103,7 +105,7 @@ class _Data:
 
             yield out
 
-    def split_data(self, shuff=True):
+    def reset_data(self, shuff=True):
         n = self.data.shape[0]
         self.n_testing = int(n * self._crossval)
         if shuffle:
@@ -116,35 +118,45 @@ class _Data:
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
 
-    def do_pca(self, no_factors):
-        self.data = self.data.reshape(self.data.shape[0], np.prod(self.data.shape[1:]))
-        if self.pca or self.standardized:
+    def fit_pca(self):
+        from csxnet.nputils import ravel_to_matrix as rtm
+        self.learning = rtm(self.learning)
+        no_factors = self.data.shape[1]
+        if self._pca or self.standardized:
             print("Ignoring attempt to PCA transform already PCA'd or standardized data.")
             return
-        if no_factors is "full":
-            print("Doing full PCA. No features:", self.data.shape[1])
-            no_factors = self.data.shape[1]
-        if not self.pca:
+        if not self._pca:
             from sklearn.decomposition import PCA
-            self.pca = PCA(n_components=no_factors, whiten=True)
-            self.pca.fit(self.data)
+            self._pca = PCA(n_components=no_factors, whiten=True)
+            self._pca.fit(self.learning)
 
-            self.data = self.pca.transform(self.data)
+    def fit_autoencoder(self, no_features: int):
+        from csxnet.high_utils import autoencode
+        self._autoencoder = autoencode(self.learning, no_features, get_model=True)
 
     def standardize(self):
-        if self.standardized or self.pca:
-            print("Ignoring attempt to standardize already standardized or PCA'd data!")
+        if self.standardized or self._pca or self._autoencoder:
+            print("Ignoring attempt to standardize already transformed!")
             return
-        self.data += 0.1
-        self.mean = np.mean(self.data, axis=0)
-        self.std = np.std(self.data, axis=0)
-        self.data -= self.mean
-        self.data /= self.std
-        # self.data = np.nan_to_num(self.data)
+
+        from csxnet.nputils import standardize
+        self.learning = standardize(self.learning)
+        if self._crossval > 0.0:
+            self.testing = standardize(self.testing)
         self.standardized = True
 
     def neurons_required(self):
         pass
+
+    def pca(self, no_features):
+        if not self._pca:
+            self.fit_pca()
+        self.learning = self._pca.transform(self.learning)[..., :no_features]
+        self.testing = self._pca.transform(self.testing)[..., :no_features]
+
+    def autoencode(self):
+        np.tanh(self.learning.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.learning)
+        np.tanh(self.testing.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.testing)
 
 
 class CData(_Data):
@@ -157,10 +169,10 @@ class CData(_Data):
 
     def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0):
         _Data.__init__(self, source, cross_val, 1, header, sep, end)
+        self.reset_data()
 
         if pca:
-            self.do_pca(pca)
-        self.split_data()
+            self.pca(pca)
 
         # In categorical data, there is only 1 independent categorical variable
         # which is stored in a 1-tuple or 1 long vector. We free it from its misery
@@ -184,7 +196,7 @@ class CData(_Data):
         targets += NAY
         np.fill_diagonal(targets, YAY)
 
-        targets = targets.astype(REAL)
+        targets = targets.astype(floatX)
 
         self._dictionary = {}
         self._dummycodes = {}
@@ -206,13 +218,9 @@ class CData(_Data):
 
         return datum, adep
 
-    def do_pca(self, no_factors):
-        _Data.do_pca(self, no_factors)
-        self.split_data(shuff=True)
-
     def standardize(self):
         _Data.standardize(self)
-        self.split_data()
+        self.reset_data()
 
     def translate(self, preds, dummy=False):
         """Translates a Brain's predictions to a human-readable answer"""
@@ -234,6 +242,8 @@ class CData(_Data):
         return self.data[0].shape, len(self.categories)
 
     def average_replications(self):
+        if self._pca or self.standardized or self._autoencoder:
+            print("Warning! Data is transformed! This method resets your data!")
         replications = {}
         for i, indep in enumerate(self.indeps):
             if indep in replications:
@@ -247,7 +257,7 @@ class CData(_Data):
         newdata = np.array([newdata[indep] for indep in newindeps])
         self.indeps = newindeps
         self.data = newdata
-        self.split_data()
+        self.reset_data()
 
 
 class RData(_Data):
@@ -271,43 +281,41 @@ class RData(_Data):
         self._oldfctrs = None
         self._newfctrs = None
 
+        self.reset_data()
         if pca:
-            self.do_pca(pca)
+            self.pca(pca)
         self.indeps = np.atleast_2d(self.indeps)
-        self.split_data()
 
-    def split_data(self, shuff=True):
+    def reset_data(self, shuff=True):
+        _Data.reset_data(self, shuff)
         if not self._downscaled:
             from .nputils import featscale
-            self.indeps, self._oldfctrs, self._newfctrs = \
-                featscale(self.indeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
+            self.lindeps, self._oldfctrs, self._newfctrs = \
+                featscale(self.lindeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
+            self.tindeps = self.downscale(self.tindeps)
             self._downscaled = True
-        _Data.split_data(self, shuff)
-        self.indeps = self.indeps.astype(REAL)
-        self.lindeps = self.lindeps.astype(REAL)
-        self.tindeps = self.tindeps.astype(REAL)
+        self.indeps = self.indeps.astype(floatX)
+        self.lindeps = self.lindeps.astype(floatX)
+        self.tindeps = self.tindeps.astype(floatX)
 
-    def do_pca(self, no_factors):
-        _Data.do_pca(self, no_factors)
-        self.split_data(shuff=True)
+    def _scale(self, A, where):
+        def sanitize():
+            assert self._downscaled, "Scaling factors not yet set!"
+            assert where in ("up", "down"), "Something is very weird here..."
+            if where == "up":
+                return self._newfctrs, self._oldfctrs
+            else:
+                return self._oldfctrs, self._newfctrs
 
-    def standardize(self):
-        _Data.standardize(self)
-        self.split_data(shuff=True)
+        from .nputils import featscale
+        fctr_list = sanitize()
+        return featscale(A, axis=0, dfctr=fctr_list[0], ufctr=fctr_list[1])
 
     def upscale(self, A):
-        from .nputils import featscale
-        if not self._downscaled:
-            return A
-        else:
-            return featscale(A, axis=0, dfctr=self._newfctrs, ufctr=self._oldfctrs)
+        return self._scale(A, "up")
 
     def downscale(self, A):
-        from .nputils import featscale
-        if not self._downscaled:
-            return A
-        else:
-            return featscale(A, axis=0, dfctr=self._oldfctrs, ufctr=self._newfctrs)
+        return self._scale(A, "down")
 
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
@@ -338,7 +346,7 @@ class Sequence:
             embedding = np.eye(len(symbols), len(symbols))
         elif how == "embed":
             assert dims, "Dims unspecified!"
-            embedding = np.random.random((len(symbols), dims)).astype(REAL)
+            embedding = np.random.random((len(symbols), dims)).astype(floatX)
         else:
             raise RuntimeError("Something is not right!")
         self._vocabulary = dict(zip(symbols, embedding))
@@ -492,7 +500,7 @@ def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
 
     lines = np.array([line.split(sep) for line in lines])
     indeps = lines[..., :indeps_n]
-    data = lines[..., indeps_n:].astype(REAL)
+    data = lines[..., indeps_n:].astype(floatX)
 
     return headers, data, indeps
 
@@ -510,9 +518,9 @@ def parselearningtable(source, coding=None):
         source = unpickle_gzip(source, coding)
     if not isinstance(source, tuple):
         raise RuntimeError("Please supply a learning table (tuple) or a *lt.pkl.gz file!")
-    if source[0].dtype != REAL:
+    if source[0].dtype != floatX:
         print("Warning! dtype differences in datamodel.parselearningtable()! Casting...")
-        source = source[0].astype(REAL), source[1]
+        source = source[0].astype(floatX), source[1]
 
     return None, source[0], source[1]
 
@@ -537,7 +545,7 @@ def mnist_to_lt(source: str, reshape=True):
     """The reason of this method's existance is that I'm lazy as ..."""
     tup = unpickle_gzip(source, coding="latin1")
     questions = np.concatenate((tup[0][0], tup[1][0], tup[2][0]))
-    questions = questions.astype(REAL, copy=False)
+    questions = questions.astype(floatX, copy=False)
     targets = np.concatenate((tup[0][1], tup[1][1], tup[2][1]))
     if reshape:
         questions = questions.reshape((questions.shape[0], 1, 28, 28))
