@@ -487,6 +487,8 @@ def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
     text = file.read()
     text = text.replace(",", ".")
     file.close()
+    assert sep in text and end in text, \
+        "Separator or Endline character is not present in the file!"
 
     lines = text.split(end)
 

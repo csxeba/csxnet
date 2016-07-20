@@ -80,9 +80,10 @@ def avg(iterable):
 def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
     """Extracts a data table from a file"""
     with open(path) as f:
-        lines = f.read().split(end)
+        text = f.read()
         f.close()
-    lines = [l.split(sep) for l in lines if l]
+    assert sep in text and end in text, "Separator or Endline character not present in file!"
+    lines = [l.split(sep) for l in text.split(end) if l]
     if header:
         header, lines = lines[0], lines[1:]
     else:
