@@ -12,6 +12,7 @@ class _Roots:
         self.ltroot = self.dataroot + "lts/"
         self.csvroot = self.dataroot + "csvs/"
         self.nirroot = self.rawroot + "nir/"
+        self.dicomroot = self.rawroot + "dicom/"
         self.tmproot = "E:/tmp/" if win else "/run/media/csa/ramdisk/"
 
         self._dict = {"data": self.dataroot,
