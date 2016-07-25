@@ -98,7 +98,7 @@ def main():
     data = pull_reddit_data2(datapath)
     net = getrnn(data)
     print("Teaching network...")
-    net.learn(time)
+    net.fit(time)
 
 if __name__ == '__main__':
     main()
