@@ -284,8 +284,9 @@ class FFNN(Network):
     Layerwise representation of a Feed Forward Neural Network
 
     Learning rate is given by the keyword argument <rate>.
-    The neural network architecture is given by <*layout> in the form of
-    inputs, hiddens, outsize. Multiple hidden layers may be defined.
+    The neural network architecture is given by <hiddens>.
+    Multiple hidden layers may be defined. Input and output neurons
+    are calculated from the shape of <data>
     """
 
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,

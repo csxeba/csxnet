@@ -482,6 +482,78 @@ class Text(Sequence):
             yield sentence[:-1], sentence[1:]
 
 
+class Text2:
+    def __init__(self, raw: str, dictionary: dict, embed=0):
+        self._raw = raw
+        self._dictionary = dictionary
+        self._emb = embed
+        self._keys = None
+        self._values = None
+
+        self.data = [self._dictionary[word] for word in self._raw]
+
+    @classmethod
+    def characterwise(cls, chain: str, vocabulary=None, embed=0):
+        if vocabulary is None:
+            vocabulary = ["<WORD_START>"] + list(set(chain)) + ["<WORD_END>"]
+        if embed:
+            print("Embedding characters into {} dimensional space!".format(embed))
+            embedding = sorted(np.random.randn(len(vocabulary), embed).astype(floatX),
+                               key=lambda x: x.sum())
+        else:
+            print("Tokenizing characters...")
+            embedding = np.eye(len(vocabulary)).astype(floatX)
+        embedding = dict(zip(sorted(vocabulary), embedding))
+        return Text2(chain, embedding)
+
+    @classmethod
+    def wordwise_NotImplemented(cls, chain: str, vocabulary=None, embed=0):
+        raise NotImplementedError("Factory method not yet implemented!")
+        if vocabulary is None:
+            vocabulary = ["<SENTECE_START>"] + list(set(chain)) + ["<SENTECE_END>"]
+        if embed:
+            print("Embedding words into {} dimensional space!".format(embed))
+            embedding = np.random.randn(len(vocabulary), embed).astype(floatX), vocabulary
+        else:
+            print("Tokenizing words...")
+            embedding = np.eye(len(vocabulary)).astype(floatX)
+        embedding = dict(zip(vocabulary, embedding))
+        return Text2(chain, embedding)
+
+    @property
+    def neurons_required(self):
+        embeddim = self._dictionary[0].shape[1]
+        return embeddim, embeddim
+
+    @property
+    def encoding(self):
+        embdim = self._dictionary[0].shape[1]
+        return "Embedding ({})".format(embdim) if self._emb else "Tokenization ({})".format(embdim)
+
+    def table(self):
+        return [ch for ch in self.data[:-1]], [ch for ch in self.data[1:]]
+
+    def translate(self, output):
+        def from_tokenization():
+            if self._keys is None:
+                keys, values = list(zip(*sorted(
+                    [(k, np.argmax(v)) for k, v in self._dictionary.items], key=lambda x: x[1]
+                )))
+                self._keys = keys
+            return self._keys[np.argmax(output)]
+
+        def from_embedding():
+            from csxnet.nputils import euclidean
+            if self._keys is None or self._values is None:
+                self._keys, self._values = list(zip(*list(self._dictionary.items())))
+            return self._keys[np.argmin(
+                [euclidean([output for _ in range(len(self._values))], self._values)]
+            )]
+
+        output = from_embedding() if self.encoding.lower()[0] == "e" else from_tokenization()
+        return output
+
+
 def parsecsv(source: str, header: int, indeps_n: int, sep: str, end: str):
     file = open(source, encoding='utf8')
     text = file.read()

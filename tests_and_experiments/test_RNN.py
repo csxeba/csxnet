@@ -1,18 +1,12 @@
-import sys
-
-# from csxnet.thNets.thModels import ThNetDynamic
-
 from csxnet.datamodel import Sequence
-
+from csxnet.utilities import roots
 
 vocabulary_size = 8000
 unknown_token = "<UNK>"
 sentence_start_token = "<START>"
 sentence_end_token = "<END>"
 
-dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
-csvsroot = dataroot + "csvs/"
-datapath = csvsroot + "reddit.csv"
+datapath = roots["csv"] + "reddit.csv"
 
 crossval = 0.2
 pca = 0
@@ -30,7 +24,7 @@ def getrnn(data: Sequence):
     net = Sequential()
     net.add(LSTM(input_dim=data.neurons_required()[0], output_dim=30))
     net.add(Dense(output_dim=5))
-    net.compile("")
+    net.compile("rmsprop", "mse")
 
     return net
 
