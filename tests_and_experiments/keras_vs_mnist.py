@@ -1,13 +1,9 @@
-import sys
-
 from keras.models import Sequential
 from keras.layers.core import Dense
 from csxnet.datamodel import mnist_to_lt, CData
+from csxnet.utilities import roots
 
-
-dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
-miscroot = dataroot + "misc/"
-miscpath = miscroot + "mnist.pkl.gz"
+miscpath = roots["misc"] + "mnist.pkl.gz"
 
 
 def get_fcnn():

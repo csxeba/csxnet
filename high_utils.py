@@ -1,5 +1,5 @@
 """This module contains higher level library based utilities,
-like SciPy, sklearn, Theano, Keras, etc."""
+like SciPy, sklearn, Keras, Pillow etc."""
 
 
 import numpy as np
@@ -48,9 +48,9 @@ def autoencode(X: np.ndarray, features: int or tuple, get_model: bool=False) -> 
     encoder.fit(data, data, batch_size=10, nb_epoch=30)
 
     weights, biases = encoder.layers[0].get_weights()
+    params = [lay.get_weights() for lay in encoder.layers]
     if get_model:
-        return weights, biases, "tanh"
-
+        return params
     transformed = np.tanh(data.dot(weights) + biases)
     return transformed
 
@@ -72,3 +72,23 @@ def plot(*lsts):
         plt.subplot(len(lsts), 1, fn + 1)
         plt.plot(lst)
     plt.show()
+
+
+def image_to_array(imagepath):
+    from PIL import Image
+    return np.array(Image.open(imagepath))
+
+
+def image_sequence_to_array(imageroot, outpath=None):
+    import os
+
+    flz = os.listdir(imageroot)
+
+    print("Merging {} images to 3D array...".format(len(flz)))
+    ar = np.stack([image_to_array(imageroot + image) for image in sorted(flz)])
+
+    if outpath is not None:
+        ar.dump(outpath)
+        print("Images merged and dumped to {}".format(outpath))
+
+    return ar

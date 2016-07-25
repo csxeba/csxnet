@@ -22,7 +22,9 @@ class _Roots:
                       "csv": self.csvroot,
                       "csvs": self.csvroot,
                       "nir": self.nirroot,
-                      "tmp": self.tmproot}
+                      "tmp": self.tmproot,
+                      "misc": self.miscroot,
+                      "dicom": self.dicomroot}
 
     def __getitem__(self, item):
         if not isinstance(item, str):

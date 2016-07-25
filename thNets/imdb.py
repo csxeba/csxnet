@@ -1,14 +1,13 @@
 import pickle
-import sys
 import gzip
 import os
 
 import numpy
 import theano
 
-dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
-miscroot = dataroot + "misc/"
-miscpath = miscroot + "imdb.pkl"
+from csxnet.utilities import roots
+
+miscpath = roots["misc"] + "imdb.pkl"
 
 
 def prepare_data(seqs, labels, maxlen=None):
@@ -80,8 +79,7 @@ def get_dataset_file(dataset, default_dataset, origin):
     return dataset
 
 
-def load_data(path=miscpath, n_words=100000, valid_portion=0.1, maxlen=None,
-              sort_by_len=True):
+def load_data(path=miscpath, n_words=100000, valid_portion=0.1, maxlen=None, sort_by_len=True):
     """Loads the dataset
 
     :type path: String
