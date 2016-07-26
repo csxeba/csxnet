@@ -1,11 +1,11 @@
-'''Example script to generate text from Nietzsche's writings.
+"""Example script to generate text from Nietzsche's writings.
 At least 20 epochs are required before the generated text
 starts sounding coherent.
 It is recommended to run this script on GPU, as recurrent
 networks are quite computationally intensive.
 If you try this script on new data, make sure your corpus
 has at least ~100k characters. ~1M is better.
-'''
+"""
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation
@@ -17,6 +17,7 @@ import random
 import sys
 
 path = get_file('nietzsche.txt', origin="https://s3.amazonaws.com/text-datasets/nietzsche.txt")
+print("path to data file: {}".format(path))
 text = open(path).read().lower()
 print('corpus length:', len(text))
 
@@ -55,13 +56,13 @@ optimizer = RMSprop(lr=0.01)
 model.compile(loss='categorical_crossentropy', optimizer=optimizer)
 
 
-def sample(preds, temperature=1.0):
+def sample(predictions, temperature=1.0):
     # helper function to sample an index from a probability array
-    preds = np.asarray(preds).astype('float64')
-    preds = np.log(preds) / temperature
-    exp_preds = np.exp(preds)
-    preds = exp_preds / np.sum(exp_preds)
-    probas = np.random.multinomial(1, preds, 1)
+    predictions = np.asarray(predictions).astype('float64')
+    predictions = np.log(predictions) / temperature
+    exp_preds = np.exp(predictions)
+    predictions = exp_preds / np.sum(exp_preds)
+    probas = np.random.multinomial(1, predictions, 1)
     return np.argmax(probas)
 
 # train the model, output generated text after each iteration
