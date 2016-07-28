@@ -23,6 +23,7 @@ class _Roots:
                       "csvs": self.csvroot,
                       "nir": self.nirroot,
                       "tmp": self.tmproot,
+                      "temp": self.tmproot,
                       "misc": self.miscroot,
                       "dicom": self.dicomroot}
 
@@ -81,18 +82,26 @@ def avg(iterable):
 
 
 def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
-    """Extracts a data table from a file"""
+    """Extracts a data table from a file
+
+    Returns data, header labels"""
     with open(path) as f:
         text = f.read()
         f.close()
     assert sep in text and end in text, "Separator or Endline character not present in file!"
+    if "," in text:
+        print("Warning! Replacing every ',' character with '.'!")
+        text = text.replace(",", ".")
     lines = [l.split(sep) for l in text.split(end) if l]
     if header:
         header, lines = lines[0], lines[1:]
     else:
         header = None
-    if labels is not None:
+    if labels:
         labels = [ln[0] for ln in lines]
-        lines = [ln[1:] for ln in lines]
+        lines = [[float(d) for d in ln[1:]] for ln in lines]
+    else:
+        labels = None
+        lines = [[float(d) for d in ln] for ln in lines]
 
     return lines, header, labels

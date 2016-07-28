@@ -7,6 +7,9 @@ If you try this script on new data, make sure your corpus
 has at least ~100k characters. ~1M is better.
 """
 
+# The rights for this script go to the Keras guys, nothing here
+# is my intellectual property!
+
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation
 from keras.layers.recurrent import LSTM
