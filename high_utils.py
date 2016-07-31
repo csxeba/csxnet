@@ -74,21 +74,33 @@ def plot(*lsts):
     plt.show()
 
 
-def image_to_array(imagepath):
+def image_to_array(imagepath, mergergb=False, sanity_check=False):
     from PIL import Image
-    return np.array(Image.open(imagepath))
+    ar = np.array(Image.open(imagepath))
+    if sanity_check:
+        _image_sanity_check(ar)
+    if mergergb:
+        assert ar.shape[-1] == 3, "This is not an RGB image!"
+        ar = (ar[..., 0] + ar[..., 1] + ar[..., 2]) // 3
+    return ar
 
 
-def image_sequence_to_array(imageroot, outpath=None):
+def image_sequence_to_array(imageroot, outpath=None, mergergb=False, sanity_check=False):
     import os
 
     flz = os.listdir(imageroot)
 
     print("Merging {} images to 3D array...".format(len(flz)))
-    ar = np.stack([image_to_array(imageroot + image) for image in sorted(flz)])
-
+    ar = np.stack([image_to_array(imageroot + image, mergergb=mergergb, sanity_check=sanity_check)
+                   for image in sorted(flz)])
     if outpath is not None:
         ar.dump(outpath)
         print("Images merged and dumped to {}".format(outpath))
 
     return ar
+
+
+def _image_sanity_check(array: np.ndarray):
+    assert array.max <= 255, "Image contains value >255!"
+    assert array.min >= 0, "Image contains value <0!"
+    print("Saniry check passed!")
