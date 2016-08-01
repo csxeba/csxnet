@@ -294,8 +294,8 @@ class RData(_Data):
             from .nputils import featscale
             self.lindeps, self._oldfctrs, self._newfctrs = \
                 featscale(self.lindeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
-            self.tindeps = self.downscale(self.tindeps)
             self._downscaled = True
+            self.tindeps = self.downscale(self.tindeps)
         self.indeps = self.indeps.astype(floatX)
         self.lindeps = self.lindeps.astype(floatX)
         self.tindeps = self.tindeps.astype(floatX)
