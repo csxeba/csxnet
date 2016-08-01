@@ -155,6 +155,8 @@ class _Data:
         self.testing = self._pca.transform(self.testing)[..., :no_features]
 
     def autoencode(self):
+        if self._autoencoder is None:
+            self.fit_autoencoder()
         np.tanh(self.learning.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.learning)
         np.tanh(self.testing.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.testing)
 

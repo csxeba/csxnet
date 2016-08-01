@@ -6,7 +6,7 @@ from ..Utility.cost import *
 
 
 class Network(NeuralNetworkBase):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost: callable):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost):
 
         NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
 
