@@ -10,8 +10,8 @@ UNKNOWN = "<UNK>"
 
 class _Data:
     """Base class for Data Wrappers"""
-
-    def __init__(self, source, cross_val, indeps_n, header, sep, end):
+    def __init__(self, source, cross_val, indeps_n, header, sep, end,
+                 standardize, pca, autoencode):
 
         def parse_source():
             if isinstance(source, np.ndarray):
@@ -47,19 +47,29 @@ class _Data:
             else:
                 raise TypeError(err)
 
+        def transformations():
+            if pca and autoencode:
+                print("Warning! You chose to do PCA and autoencoding simultaneously on the data.")
+            if standardize:
+                self._transformation = self.self_standardize
+            if pca:
+                self._transformation = lambda: self.fit_pca(pca, True)
+            if autoencode:
+                self._transformation = lambda: self.fit_autoencoder(autoencode)
+
         self.learning = None
         self.testing = None
         self.lindeps = None
         self.tindeps = None
         self._pca = None
         self._autoencoder = None
+        self._standardize_factors = None
+        self._transformation = None
         self.type = None
 
         self.N = 0
         self.mean = 0
         self.std = 0
-
-        self.standardized = False
 
         headers, data, indeps = parse_source()
         self.n_testing = determine_no_testing()
@@ -67,6 +77,8 @@ class _Data:
 
         self.headers = headers
         self.data, self.indeps = data, indeps
+
+        transformations()
 
     def table(self, data):
         """Returns a learning table"""
@@ -118,35 +130,32 @@ class _Data:
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
 
-    def fit_pca(self):
+    def fit_pca(self, no_factors=None, whiten=False):
         from csxnet.nputils import ravel_to_matrix as rtm
         self.learning = rtm(self.learning)
-        no_factors = self.data.shape[1]
-        if self._pca or self.standardized:
-            print("Ignoring attempt to PCA transform already PCA'd or standardized data.")
-            return
+        if self._pca:
+            raise Exception("Data already transformed by PCA!")
+        if no_factors is None:
+            no_factors = self.learning.shape[0]
+            print("No factors is unspecified. Assuming all ({})!".format(no_factors))
         if not self._pca:
             from sklearn.decomposition import PCA
-            self._pca = PCA(n_components=no_factors, whiten=True)
+            self._pca = PCA(n_components=no_factors, whiten=whiten)
             self._pca.fit(self.learning)
+            self.learning = self._pca.transform(self.learning)
 
     def fit_autoencoder(self, no_features: int):
         from csxnet.high_utils import autoencode
         self._autoencoder = autoencode(self.learning, no_features, get_model=True)
 
-    def standardize(self):
-        if self.standardized or self._pca or self._autoencoder:
-            print("Ignoring attempt to standardize already transformed!")
-            return
-
+    def self_standardize(self):
         from csxnet.nputils import standardize
-        self.learning = standardize(self.learning)
+        self.learning, mean, std = standardize(self.learning, return_factors=True)
+        self._standardize_factors = mean, std
         if self._crossval > 0.0:
-            self.testing = standardize(self.testing)
-        self.standardized = True
-
-    def neurons_required(self):
-        pass
+            self.testing = standardize(self.testing,
+                                       mean=self._standardize_factors[0],
+                                       std=self._standardize_factors[1])
 
     def pca(self, no_features):
         if not self._pca:
@@ -160,6 +169,37 @@ class _Data:
         np.tanh(self.learning.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.learning)
         np.tanh(self.testing.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.testing)
 
+    def standardize(self, X):
+        if self.pca or self._autoencoder:
+            print("Data is transformed with {}!".format("PCA" if self.pca is not None else "autoencoder"))
+        if not self._standardize_factors:
+            print("No transformation applied to data! First apply standardize()!")
+            return
+        mean, std = self._standardize_factors
+        return (X - mean) / std
+
+    @property
+    def neurons_required(self):
+        return None
+
+    @property
+    def crossval(self):
+        return self._crossval
+
+    @crossval.setter
+    def crossval(self, alfa):
+        if alfa == 0:
+            self._crossval = 0.0
+        elif isinstance(alfa, int) and alfa == 1:
+            print("Received an integer value of 1. Assuming 1 testing sample!")
+            self._crossval = 1 / self.data.shape[0]
+        elif isinstance(alfa, int) and alfa > 1:
+            self._crossval = alfa / self.data.shape[0]
+        elif isinstance(alfa, float) and 0.0 < alfa <= 1.0:
+            self._crossval = alfa
+        else:
+            raise ValueError("Wrong value supplied!")
+
 
 class CData(_Data):
     """
@@ -169,8 +209,9 @@ class CData(_Data):
     The elements must be of type integer or float.
     """
 
-    def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, 1, header, sep, end)
+    def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0,
+                 standardize=False, autoencode=False):
+        _Data.__init__(self, source, cross_val, 1, header, sep, end, standardize, pca, autoencode)
         self.reset_data()
 
         if pca:
@@ -220,8 +261,8 @@ class CData(_Data):
 
         return datum, adep
 
-    def standardize(self):
-        _Data.standardize(self)
+    def standardize(self, X):
+        _Data.standardize(self, X)
         self.reset_data()
 
     def translate(self, preds, dummy=False):
@@ -238,13 +279,14 @@ class CData(_Data):
              }[data[0]][:len(self.tindeps)]
         return np.array([self._dummycodes[x] for x in d])
 
+    @property
     def neurons_required(self):
         """Returns the required number of input and output neurons
          to process this myData.."""
         return self.data[0].shape, len(self.categories)
 
     def average_replications(self):
-        if self._pca or self.standardized or self._autoencoder:
+        if self._pca or self._standardize_factors or self._autoencoder:
             print("Warning! Data is transformed! This method resets your data!")
         replications = {}
         for i, indep in enumerate(self.indeps):
@@ -319,6 +361,7 @@ class RData(_Data):
     def downscale(self, A):
         return self._scale(A, "down")
 
+    @property
     def neurons_required(self):
         return self.data[0].shape, self.indeps.shape[1]
 

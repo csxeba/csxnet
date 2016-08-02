@@ -24,33 +24,55 @@ def featscale(X: np.ndarray, axis=0, ufctr=(0, 1), dfctr=None, getfctrs=False):
         return output, dfctr, ufctr
 
 
-def standardize(X: np.ndarray):
-    mean, std = X.mean(axis=0), X.std(axis=0) + 1e-6
-    return (X - mean) / std
+def standardize(X: np.ndarray,
+                mean: np.ndarray=None, std: np.ndarray=None,
+                return_factors: bool=False):
+    assert (mean is None and std is None) or (mean is not None and std is not None)
+    if mean is None:
+        mean = X.mean(axis=0)
+    if std is None:
+        std = X.std(axis=0) + 1e-8
+
+    scaled = (X - mean) / std
+
+    if return_factors:
+        return scaled, mean, std
+    else:
+        return scaled
 
 
-def pca_transform(X: np.ndarray, factors, whiten=False):
+def pca_transform(X: np.ndarray, factors: int=None, whiten: bool=False,
+                  return_features: bool=False):
     from sklearn.decomposition import PCA
 
     print("Fitting PCA...")
+    if X.ndim > 2:
+        print("PCA: Warning! X is multidimensional, flattening it to matrix!")
+        X = ravel_to_matrix(X)
+    if factors is None:
+        factors = X.shape[-1]
+        print("PCA: Factor amount not specified, assuming full ({})!".format(factors))
     pca = PCA(n_components=factors, whiten=whiten)
     data = pca.fit_transform(ravel_to_matrix(X))
     if data.shape[1] != factors and data.shape[1] == data.shape[0]:
-        print("Warning! Couldn't calculate covariance matrix, used generalized inverse instead!")
-    return data
+        print("PCA: Warning! Couldn't calculate covariance matrix, used generalized inverse instead!")
+    if return_features:
+        return data, pca.components_
+    else:
+        return data
 
 
 def euclidean(itr: np.ndarray, target: np.ndarray):
     """Distance of points in euclidean space"""
-    # print("Warning, nputils.euclidean() is untested!")
     return np.sqrt(np.sum(np.square(itr - target), axis=0))
 
 
 def haversine(coords1: np.ndarray, coords2: np.ndarray):
     """The distance of points on the surface of Earth given their GPS (WGS) coordinates"""
-    assert coords1.ndim == coords2.ndim == 2, "Please supply two arrays of coordinate-pairs!"
-    assert all([dim1 == dim2 for dim1, dim2 in zip(coords1.shape, coords2.shape)]), \
-        "Please supply two arrays of coordinate-pairs!"
+    err = "Please supply two arrays of coordinate-pairs!"
+    assert coords1.ndim == coords2.ndim == 2, err
+    assert all([dim1 == dim2 for dim1, dim2 in zip(coords1.shape, coords2.shape)]), err
+
     R = 6367  # Approximate radius of Mother Earth in kms
     np.radians(coords1, out=coords1)
     np.radians(coords2, out=coords2)
