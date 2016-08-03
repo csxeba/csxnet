@@ -53,7 +53,7 @@ class _Data:
             if standardize:
                 self._transformation = self.self_standardize
             if pca:
-                self._transformation = lambda: self.fit_pca(pca, True)
+                self._transformation = lambda: self.fit_pca(pca)
             if autoencode:
                 self._transformation = lambda: self.fit_autoencoder(autoencode)
 
@@ -117,7 +117,26 @@ class _Data:
 
             yield out
 
-    def reset_data(self, shuff=True):
+    def reset_data(self, shuff, transform, params=None):
+
+        def do_transformation(prm):
+            if isinstance(transform, str):
+                tr = transform.lower()[:5]
+                if tr in ("std", "stand"):
+                    self._transformation = self.self_standardize
+                    if prm is not None:
+                        print("Warning supplied parameters but chose standardization! Parameters are ignored!")
+                elif tr in ("pca", "princ"):
+                    assert prm is not None and isinstance(prm, int), \
+                           "Please supply parameters for PCA like this: (no_factors: int, whiten: bool)"
+                    self._transformation = lambda: self.fit_pca(no_factors=prm)
+                elif tr in ("ae", "autoe"):
+                    assert prm is not None and isinstance(prm, int), \
+                           "Please supply the number of features for autencoding!"
+                    self._transformation = lambda: self.fit_autoencoder(no_features=prm)
+                    self._transformation = self.fit_autoencoder
+            self._transformation()
+
         n = self.data.shape[0]
         self.n_testing = int(n * self._crossval)
         if shuffle:
@@ -129,8 +148,10 @@ class _Data:
         self.testing = dat[:self.n_testing]
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
+        if transform:
+            do_transformation(params)
 
-    def fit_pca(self, no_factors=None, whiten=False):
+    def fit_pca(self, no_factors=None):
         from csxnet.nputils import ravel_to_matrix as rtm
         self.learning = rtm(self.learning)
         if self._pca:
@@ -140,7 +161,7 @@ class _Data:
             print("No factors is unspecified. Assuming all ({})!".format(no_factors))
         if not self._pca:
             from sklearn.decomposition import PCA
-            self._pca = PCA(n_components=no_factors, whiten=whiten)
+            self._pca = PCA(n_components=no_factors, whiten=True)
             self._pca.fit(self.learning)
             self.learning = self._pca.transform(self.learning)
 
@@ -148,8 +169,9 @@ class _Data:
         from csxnet.high_utils import autoencode
         self.learning, self._autoencoder = autoencode(self.learning, no_features, get_model=True)
 
-    def self_standardize(self):
+    def self_standardize(self, no_factors: int=None):
         from csxnet.nputils import standardize
+        del no_factors
         self.learning, mean, std = standardize(self.learning, return_factors=True)
         self._standardize_factors = mean, std
         if self._crossval > 0.0:
@@ -214,10 +236,7 @@ class CData(_Data):
     def __init__(self, source, cross_val=.2, header=True, sep="\t", end="\n", pca=0,
                  standardize=False, autoencode=False):
         _Data.__init__(self, source, cross_val, 1, header, sep, end, standardize, pca, autoencode)
-        self.reset_data()
-
-        if pca:
-            self.pca(pca)
+        self.reset_data(shuff=True, transform=True)
 
         # In categorical data, there is only 1 independent categorical variable
         # which is stored in a 1-tuple or 1 long vector. We free it from its misery
@@ -263,10 +282,6 @@ class CData(_Data):
 
         return datum, adep
 
-    def standardize(self, X):
-        _Data.standardize(self, X)
-        self.reset_data()
-
     def translate(self, preds, dummy=False):
         """Translates a Brain's predictions to a human-readable answer"""
 
@@ -303,7 +318,7 @@ class CData(_Data):
         newdata = np.array([newdata[indep] for indep in newindeps])
         self.indeps = newindeps
         self.data = newdata
-        self.reset_data()
+        self.reset_data(shuff=True, transform=True)
 
 
 class RData(_Data):
@@ -314,8 +329,10 @@ class RData(_Data):
     The elements must be of type integer or float.
     """
 
-    def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n", pca=0):
-        _Data.__init__(self, source, cross_val, indeps_n, header, sep, end)
+    def __init__(self, source, cross_val, indeps_n, header, sep=";", end="\n",
+                 standardize=False, autoencode=0, pca=0):
+        _Data.__init__(self, source, cross_val, indeps_n, header, sep, end,
+                       standardize, pca, autoencode)
 
         self._indepscopy = np.copy(np.atleast_2d(self.indeps))
 
@@ -332,8 +349,8 @@ class RData(_Data):
             self.pca(pca)
         self.indeps = np.atleast_2d(self.indeps)
 
-    def reset_data(self, shuff=True):
-        _Data.reset_data(self, shuff)
+    def reset_data(self, shuff=True, transform=True, params=None):
+        _Data.reset_data(self, shuff, transform, params)
         if not self._downscaled:
             from .nputils import featscale
             self.lindeps, self._oldfctrs, self._newfctrs = \

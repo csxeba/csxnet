@@ -13,7 +13,7 @@ def autoencode(X: np.ndarray, hiddens,
 
     from csxnet.nputils import standardize
 
-    def sanitize():
+    def sanitize(ftrs):
         if isinstance(hiddens, int):
             ftrs = (hiddens,)
         return ftrs
@@ -33,7 +33,7 @@ def autoencode(X: np.ndarray, hiddens,
 
     print("Creating autoencoder model...")
 
-    hiddens = sanitize()
+    hiddens = sanitize(hiddens)
     data = standardize(rtm(X))
     dimensions = data.shape[1]
 
@@ -43,8 +43,10 @@ def autoencode(X: np.ndarray, hiddens,
     model = encoder.get_weights()
     encoder, decoder = model[:len(hiddens) + 1], model[len(hiddens) + 1:]
 
-    for weights, biases in encoder:
-        transformed = np.tanh(data.dot(weights) + biases)
+    transformed = np.tanh(data.dot(encoder[0][0]) + encoder[0][1])
+    if len(encoder) > 1:
+        for weights, biases in encoder[1:]:
+            transformed = np.tanh(transformed.dot(weights) + biases)
     if get_model:
         return transformed, (encoder, decoder)
     else:
