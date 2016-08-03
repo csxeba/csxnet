@@ -38,12 +38,17 @@ def autoencode(X: np.ndarray, hiddens,
     dimensions = data.shape[1]
 
     encoder = build_encoder(hiddens, dimensions)
-
     print("Training on data...")
     encoder.fit(data, data, batch_size=10, nb_epoch=30)
+    model = encoder.get_weights()
+    encoder, decoder = model[:len(hiddens) + 1], model[len(hiddens) + 1:]
 
-    transformed = np.tanh(data.dot(weights) + biases)
-    return transformed
+    for weights, biases in encoder:
+        transformed = np.tanh(data.dot(weights) + biases)
+    if get_model:
+        return transformed, (encoder, decoder)
+    else:
+        return transformed
 
 
 def pca_transform(X: np.ndarray, factors: int, whiten: bool=False,

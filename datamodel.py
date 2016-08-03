@@ -146,7 +146,7 @@ class _Data:
 
     def fit_autoencoder(self, no_features: int):
         from csxnet.high_utils import autoencode
-        self._autoencoder = autoencode(self.learning, no_features, get_model=True)
+        self.learning, self._autoencoder = autoencode(self.learning, no_features, get_model=True)
 
     def self_standardize(self):
         from csxnet.nputils import standardize
@@ -163,11 +163,13 @@ class _Data:
         self.learning = self._pca.transform(self.learning)[..., :no_features]
         self.testing = self._pca.transform(self.testing)[..., :no_features]
 
-    def autoencode(self):
+    def autoencode(self, X):
+        X = np.copy(X)
         if self._autoencoder is None:
-            self.fit_autoencoder()
-        np.tanh(self.learning.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.learning)
-        np.tanh(self.testing.dot(self._autoencoder[0]) + self._autoencoder[1], out=self.testing)
+            raise Exception("No autoencoder fitted to data! First apply fit_autoencoder()!")
+        for weights, biases in self._autoencoder[0]:
+            X = X.dot(weights) + biases
+        return X
 
     def standardize(self, X):
         if self.pca or self._autoencoder:
