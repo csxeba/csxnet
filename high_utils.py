@@ -4,7 +4,7 @@ like SciPy, sklearn, Keras, Pillow etc."""
 
 import numpy as np
 from .nputils import ravel_to_matrix as rtm
-
+# asd
 
 def autoencode(X: np.ndarray, hiddens,
                get_model: bool=False) -> np.ndarray:
