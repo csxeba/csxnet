@@ -152,7 +152,8 @@ def export_to_file(path: str, data: np.ndarray, labels=None, headers=None):
 
 
 def import_from_csv(path: str, labels: int=1, headers: bool=True, sep="\t", end="\n",
-                    floatX="float32", encoding=None):
+                    floatX="float32", encoding=None) -> tuple:
+    """Returns with the tuple: (data, label, headers)"""
     label, header = None, None
     with open(path, "r", encoding=encoding) as file:
         data = file.read()
