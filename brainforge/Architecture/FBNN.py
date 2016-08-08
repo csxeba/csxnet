@@ -1,8 +1,8 @@
 """This is a FFNN with some feedback capabilities implemented."""
 
+from brainforge.activations import Sigmoid
 from .FFNN import *
 from ..Layerdef.Neurons import Neuron
-from ..Utility.activations import Sigmoid
 
 sigmoid = Sigmoid()
 

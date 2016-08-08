@@ -1,8 +1,8 @@
+from model import Network
+from brainforge.activations import *
+from brainforge.cost import *
 from .FFNN import FFLayerBrain
-from .NNModel import Network
 from ..Utility.DataModel import CData
-from ..Utility.activations import *
-from ..Utility.cost import *
 
 
 class OnMNIST:

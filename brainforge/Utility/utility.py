@@ -15,13 +15,13 @@ def outshape(inshape: tuple, fshape: tuple, stride: int):
 
 def calcsteps(inshape: tuple, fshape: tuple, stride: int):
     """Calculates the coordinates required to slide
-    a filter of shape <fshape> along a matrix of shape <fanin>
+    a filter of shape <fshape> along a matrix of shape <inshape>
     with a stride of <stride>.
     Returns a list of coordinates"""
     xsteps, ysteps = outshape(inshape, fshape, stride)
 
-    startxes = np.array(range(xsteps)) * stride
-    startys = np.array(range(ysteps)) * stride
+    startxes = np.arange(xsteps) * stride
+    startys = np.arange(ysteps) * stride
 
     endxes = startxes + fshape[1]
     endys = startys + fshape[2]
@@ -33,13 +33,6 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
             coords.append((sx, ex, sy, ey))
 
     return tuple(coords)
-
-
-def ravel_to_matrix(A):
-    print("BrainForge utility <ravel_to_matrix()> is moved to csxnet.utilities")
-    A = np.atleast_2d(A)
-    A = A.reshape(A.shape[0], np.prod(A.shape[1:]))
-    return A
 
 
 def l1term(eta, lmbd, N):

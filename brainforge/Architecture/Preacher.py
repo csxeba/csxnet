@@ -1,7 +1,7 @@
-from .NNModel import *
+from csxnet.nputils import combination
+
 from .NetworkBase import NeuralNetworkBase
 from ..Layerdef.Layers import *
-from csxnet.nputils import combination
 
 
 class Predictor:

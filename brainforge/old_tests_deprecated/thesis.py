@@ -8,7 +8,7 @@ from theano.tensor.nnet import conv
 from theano.tensor.nnet import sigmoid
 from theano.tensor.signal import downsample
 
-from datamodel import CData, mnist_to_lt
+from data import CData, mnist_to_lt
 
 
 datapath = "/data/Prog/data/" if sys.platform.lower() != "win32" else "D:/Data/"

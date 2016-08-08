@@ -1,8 +1,7 @@
-"""CNN implementation"""
-from .NetworkBase import NeuralNetworkBase
-from ..Layerdef.Layers import *
-from ..Utility.activations import *
-from ..Utility.cost import *
+from brainforge.activations import *
+from brainforge.cost import *
+from .brainforge.Architecture.NetworkBase import NeuralNetworkBase
+from .brainforge.Layerdef.Layers import *
 
 
 class Network(NeuralNetworkBase):

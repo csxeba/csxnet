@@ -1,6 +1,6 @@
 """My crazy expreminets are taking place here"""
 
-from .NNModel import Network
+from model import Network
 from ..Layerdef import _LayerBase
 
 
