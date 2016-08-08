@@ -4,8 +4,8 @@ from scipy.ndimage import convolve
 
 from brainforge.activations import Linear
 from ._LayerBase import _VecLayer, _FCLayer
-from ..Utility.operations import maxpool
-from ..Utility.utility import l2term, l1term
+from nputils import maxpool
+from utilities import l1term, l2term
 
 
 class PoolLayer(_VecLayer):

@@ -2,7 +2,7 @@ from model import Network
 from brainforge.activations import *
 from brainforge.cost import *
 from .FFNN import FFLayerBrain
-from ..Utility.DataModel import CData
+from csxnet.data import CData
 
 
 class OnMNIST:
@@ -18,7 +18,7 @@ class OnMNIST:
         lmbda = 5.0
         cost = Xent
 
-        net = Network(OnMNIST.data, eta, lmbda, cost)
+        net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
         net.add_conv(fshape=(3, 3), n_filters=1, stride=1, activation=Sigmoid)
         net.add_pool(pool=2)
         net.add_fc(neurons=80, activation=Sigmoid)
@@ -34,7 +34,7 @@ class OnMNIST:
         lmbda = 5.0
         cost = Xent
 
-        net = Network(OnMNIST.data, eta, lmbda, cost)
+        net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
         net.add_conv(fshape=(9, 9), n_filters=3, stride=1, activation=Sigmoid)
         net.add_pool(pool=2)
@@ -54,7 +54,8 @@ class OnMNIST:
 
         epochs = 30
 
-        net = FFLayerBrain(hiddens=(80,), data=OnMNIST.data, eta=eta, lmbd=lmbda, cost=cost, activation=Sigmoid)
+        net = FFLayerBrain(hiddens=(80,), data=OnMNIST.data, eta=eta, lmbd1=lmbda, lmbd2=0.0, mu=0.0,
+                           cost=cost, activation=Sigmoid)
 
         return net, epochs
 
@@ -64,8 +65,8 @@ class OnMNIST:
         lmbda = 5.0
         cost = Xent
 
-        net = Network(OnMNIST.data, eta=eta, lmbd=lmbda, cost=cost)
-        net.add_drop(60)
+        net = Network(OnMNIST.data, eta=eta, lmbd1=lmbda, lmbd2=0.0, mu=0.0, cost=cost)
+        net.add_drop(60, activation=Tanh)
         net.finalize_architecture()
 
         epochs = 30
@@ -80,7 +81,7 @@ class OnMNIST:
         cost = Xent
         epochs = 30
 
-        net = Network(OnMNIST.data, eta, lmbda, cost)
+        net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
         net.add_fc(30, activation=Sigmoid)
         net.finalize_architecture(activation=Sigmoid)
@@ -94,9 +95,9 @@ class OnMNIST:
         lmbda = 0.0
         cost = MSE
 
-        net = Network(OnMNIST.data, eta, lmbda, cost)
+        net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
-        net.add_fc(30)
+        net.add_fc(30, activation=Sigmoid)
         net.finalize_architecture()
 
         epochs = 5

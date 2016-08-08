@@ -106,3 +106,11 @@ def pull_table(path, header=True, labels=False, sep="\t", end="\n"):
         lines = [[float(d) for d in ln] for ln in lines]
 
     return lines, header, labels
+
+
+def l1term(eta, lmbd, N):
+    return (eta * lmbd) / N
+
+
+def l2term(eta, lmbd, N):
+    return 1 - ((eta * lmbd) / N)

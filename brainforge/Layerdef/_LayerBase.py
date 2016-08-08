@@ -2,11 +2,9 @@
 Abstract base classes for the layer implementations.
 Why did I create these? No idea...
 """
-import abc
-
 import numpy as np
 
-from ..Utility.utility import outshape, calcsteps
+from csxnet.nputils import outshape, calcsteps
 
 
 class _LayerBase(object):

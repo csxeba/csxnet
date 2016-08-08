@@ -6,10 +6,11 @@ YAY = 1.0
 NAY = 0.0
 
 UNKNOWN = "<UNK>"
-# asd
+
 
 class _Data:
     """Base class for Data Wrappers"""
+
     def __init__(self, source, cross_val, indeps_n, header, sep, end,
                  standardize, pca, autoencode):
 
@@ -77,6 +78,7 @@ class _Data:
 
         self.headers = headers
         self.data, self.indeps = data, indeps
+        self.data.flags["WRITEABLE"] = False
 
         transformations()
 
@@ -89,12 +91,9 @@ class _Data:
                "t": self.tindeps,
                "d": self.indeps}[data[0]]
 
-        # I wasn't sure if the order gets messed up or not, but it seems it isn't
-        # Might be wise to implement this as a test method, because shuffling
-        # transposed data might lead to surprises
         return dat, ind
 
-    def batchgen(self, bsize: int, data: str="learning") -> np.ndarray:
+    def batchgen(self, bsize: int, data: str = "learning") -> np.ndarray:
         """Returns a generator that yields batches randomly from the
         specified dataset.
 
@@ -125,14 +124,15 @@ class _Data:
                 if tr in ("std", "stand"):
                     self._transformation = self.self_standardize
                     if prm is not None:
-                        print("Warning supplied parameters but chose standardization! Parameters are ignored!")
+                        print("Warning! Supplied parameters but chose standardization!\
+                         Parameters are ignored!")
                 elif tr in ("pca", "princ"):
                     assert prm is not None and isinstance(prm, int), \
-                           "Please supply parameters for PCA like this: (no_factors: int, whiten: bool)"
+                        "Please supply parameters for PCA like this: (no_factors: int, whiten: bool)"
                     self._transformation = lambda: self.fit_pca(no_factors=prm)
                 elif tr in ("ae", "autoe"):
                     assert prm is not None and isinstance(prm, int), \
-                           "Please supply the number of features for autencoding!"
+                        "Please supply the number of features for autoencoding!"
                     self._transformation = lambda: self.fit_autoencoder(no_features=prm)
                     self._transformation = self.fit_autoencoder
             self._transformation()
@@ -148,26 +148,37 @@ class _Data:
         self.testing = dat[:self.n_testing]
         self.tindeps = ind[:self.n_testing]
         self.N = self.learning.shape[0]
-        if transform:
+        if transform and self._transformation is not None:
             do_transformation(params)
+        if not transform:
+            self._transformation = None
 
-    def fit_pca(self, no_factors=None):
+    def fit_pca(self, no_factors: int=None):
         from csxnet.nputils import ravel_to_matrix as rtm
+        if self._transformation is not None:
+            print("Warning! Appliing transformation to already transformed data! This is untested!")
         self.learning = rtm(self.learning)
         if self._pca:
             raise Exception("Data already transformed by PCA!")
-        if no_factors is None:
-            no_factors = self.learning.shape[0]
-            print("No factors is unspecified. Assuming all ({})!".format(no_factors))
+        if not no_factors or no_factors == "full":
+            no_factors = self.learning.shape[-1]
+            chain = ""
+            if not no_factors:
+                chain += "No factors is unspecified. "
+            print(chain + "Assuming factor number: {}".format(no_factors))
         if not self._pca:
             from sklearn.decomposition import PCA
             self._pca = PCA(n_components=no_factors, whiten=True)
             self._pca.fit(self.learning)
             self.learning = self._pca.transform(self.learning)
+        self._transformation = lambda: self.fit_pca(no_factors)
 
-    def fit_autoencoder(self, no_features: int):
+    def fit_autoencoder(self, no_features: int, epochs: int=5):
         from csxnet.high_utils import autoencode
-        self.learning, self._autoencoder = autoencode(self.learning, no_features, get_model=True)
+        self.learning, self._autoencoder = autoencode(self.learning, no_features, epochs=epochs,
+                                                      validation=self.testing, get_model=True)
+        self.testing = self.autoencode(self.testing)
+        self._transformation = lambda: self.fit_autoencoder(no_features=no_features, epochs=epochs)
 
     def self_standardize(self, no_factors: int=None):
         from csxnet.nputils import standardize
@@ -178,6 +189,7 @@ class _Data:
             self.testing = standardize(self.testing,
                                        mean=self._standardize_factors[0],
                                        std=self._standardize_factors[1])
+        self._transformation = self.self_standardize
 
     def pca(self, no_features):
         if not self._pca:
@@ -211,18 +223,20 @@ class _Data:
         return self._crossval
 
     @crossval.setter
-    def crossval(self, alfa):
-        if alfa == 0:
+    def crossval(self, alpha):
+        if alpha == 0:
             self._crossval = 0.0
-        elif isinstance(alfa, int) and alfa == 1:
+        elif isinstance(alpha, int) and alpha == 1:
             print("Received an integer value of 1. Assuming 1 testing sample!")
             self._crossval = 1 / self.data.shape[0]
-        elif isinstance(alfa, int) and alfa > 1:
-            self._crossval = alfa / self.data.shape[0]
-        elif isinstance(alfa, float) and 0.0 < alfa <= 1.0:
-            self._crossval = alfa
+        elif isinstance(alpha, int) and alpha > 1:
+            self._crossval = alpha / self.data.shape[0]
+        elif isinstance(alpha, float) and 0.0 < alpha <= 1.0:
+            self._crossval = alpha
         else:
-            raise ValueError("Wrong value supplied!")
+            raise ValueError("Wrong value supplied! Give the ratio (0.0 <= alpha <= 1.0)\n" +
+                             "or the number of samples to be used for validation!")
+        self.reset_data(shuff=True, transform=True)
 
 
 class CData(_Data):
@@ -245,18 +259,10 @@ class CData(_Data):
             self.lindeps = np.array([d[0] for d in self.lindeps])
             self.tindeps = np.array([d[0] for d in self.tindeps])
 
-        # We extract the set of categories. set() removes duplicate values.
         self.categories = list(set(self.indeps))
 
-        # Every category gets associated with a y long array, where y is the
-        # number of categories. Every array gets filled with zeros.
-        targets = np.zeros((len(self.categories),
-                            len(self.categories)))
+        targets = np.zeros((len(self.categories), len(self.categories)))
 
-        # The respective element of the array, corresponding to the associated
-        # category is set to YAY. Thus if 10 categories are present, then category
-        # No. 3 is represented by the following array:
-        # NAY, NAY, YAY, NAY, NAY, NAY, NAY, NAY, NAY, NAY
         targets += NAY
         np.fill_diagonal(targets, YAY)
 
@@ -466,11 +472,11 @@ class Text(Sequence):
         return self.data.shape[0]  # TODO: is this right??
 
     def initialize(self,
-                   vocabulary: dict=None,
-                   vlimit: int=None,
-                   tokenize: bool=True,
-                   embed: bool=False,
-                   embeddim: int=5):
+                   vocabulary: dict = None,
+                   vlimit: int = None,
+                   tokenize: bool = True,
+                   embed: bool = False,
+                   embeddim: int = 5):
 
         def accept_vocabulary():
             example = list(vocabulary.keys())[0]

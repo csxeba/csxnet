@@ -1,7 +1,7 @@
-from csxnet.brainforge.Architecture.NNModel import Network
-from csxnet.brainforge.Utility.activations import *
-from csxnet.brainforge.Utility.cost import Xent, MSE
-from csxnet.datamodel import CData, mnist_to_lt
+from csxnet.model import Network
+from csxnet.brainforge.activations import *
+from csxnet.brainforge.cost import Xent, MSE
+from csxnet.data import CData, mnist_to_lt
 from csxnet.utilities import roots
 
 datapath = roots["misc"]

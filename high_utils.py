@@ -6,9 +6,11 @@ import numpy as np
 from .nputils import ravel_to_matrix as rtm
 
 
-def autoencode(X: np.ndarray, hiddens, get_model: bool=False) -> np.ndarray:
+def autoencode(X: np.ndarray, hiddens, validation: np.ndarray, epochs=5,
+               get_model: bool=False) -> np.ndarray:
     from keras.models import Sequential
     from keras.layers.core import Dense
+    from keras.optimizers import Adadelta
 
     from csxnet.nputils import standardize
 
@@ -27,20 +29,23 @@ def autoencode(X: np.ndarray, hiddens, get_model: bool=False) -> np.ndarray:
             for neurons in hid[-2:0:-1]:
                 enc.add(Dense(output_dim=neurons, activation="tanh"))
         enc.add(Dense(output_dim=dims, activation="tanh"))
-        enc.compile("adadelta", loss="mse")
+        enc.compile(Adadelta(), loss="mse")
         return enc
 
     print("Creating autoencoder model...")
 
     hiddens = sanitize(hiddens)
-    data = standardize(rtm(X))
+    data, mean, std = standardize(rtm(X), return_factors=True)
     dimensions = data.shape[1]
 
     encoder = build_encoder(hiddens, dimensions)
     print("Training on data...")
-    encoder.fit(data, data, batch_size=10, nb_epoch=30)
-    model = encoder.get_weights()
-    encoder, decoder = model[:len(hiddens) + 1], model[len(hiddens) + 1:]
+    if validation is not None:
+        validation = standardize(validation, mean, std)
+        validation = (validation, validation)
+    encoder.fit(data, data, batch_size=20, nb_epoch=epochs, validation_data=validation)
+    model = [layer.get_weights() for layer in encoder.layers]
+    encoder, decoder = model[:len(hiddens)], model[len(hiddens):]
 
     transformed = np.tanh(data.dot(encoder[0][0]) + encoder[0][1])
     if len(encoder) > 1:

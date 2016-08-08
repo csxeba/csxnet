@@ -172,6 +172,63 @@ def import_from_csv(path: str, labels: int=1, headers: bool=True, sep="\t", end=
     return data, label, header
 
 
+def outshape(inshape: tuple, fshape: tuple, stride: int):
+    """Calculates the shape of an output matrix if a filter of shape
+    <fshape> gets slided along a matrix of shape <fanin> with a
+    stride of <stride>.
+    Returns x, y sizes of the output matrix"""
+    output = [int((x - ins) / stride) + 1 if (x - ins) % stride == 0 else "NaN"
+              for x, ins in zip(inshape[1:3], fshape[1:3])]
+    if "NaN" in output:
+        raise RuntimeError("Shapes not compatible!")
+    return tuple(output)
+
+
+def calcsteps(inshape: tuple, fshape: tuple, stride: int):
+    """Calculates the coordinates required to slide
+    a filter of shape <fshape> along a matrix of shape <inshape>
+    with a stride of <stride>.
+    Returns a list of coordinates"""
+    xsteps, ysteps = outshape(inshape, fshape, stride)
+
+    startxes = np.arange(xsteps) * stride
+    startys = np.arange(ysteps) * stride
+
+    endxes = startxes + fshape[1]
+    endys = startys + fshape[2]
+
+    coords = []
+
+    for sy, ey in zip(startys, endys):
+        for sx, ex in zip(startxes, endxes):
+            coords.append((sx, ex, sy, ey))
+
+    return tuple(coords)
+
+
+def convolve(matrix, filt, stride):
+    msh = tuple(["NaN"] + list(matrix.shape))
+    fsh = tuple(["NaN"] + list(filt.shape))
+    oshape = outshape(msh, fsh, stride)
+    steps = calcsteps(msh, fsh, stride)
+    result = np.zeros(len(steps))
+    for i, (start0, end0, start1, end1) in enumerate(steps):
+        result[i] = frobenius(matrix[start0:end0, start1:end1], filt)
+    return result.reshape(oshape)
+
+
+def frobenius(mat, filt):
+    """Cross-correlate the filter and the matrix.
+    Meaning: compute elementwise (Hadamard) product, then sum everything
+    nD Array goes in, scalar comes out."""
+    assert mat.shape == filt.shape, "Shapes differ! Can't convolve..."
+    return np.sum(mat * filt)
+
+
+def maxpool(mat):
+    return np.amax(mat, axis=(0, 1))
+
+
 class Test:
     def __init__(self):
         print("\n<<< <<< TESTING |nputils.py| >>> >>>")
