@@ -12,8 +12,8 @@ class _Roots:
         self.ltroot = self.dataroot + "lts/"
         self.csvroot = self.dataroot + "csvs/"
         self.nirroot = self.rawroot + "nir/"
-        self.dicomroot = self.rawroot + "dicom/"
         self.tmproot = "E:/tmp/" if win else "/run/media/csa/ramdisk/"
+        self.hippocrates = self.rawroot + "Project_Hippocrates/"
 
         self._dict = {"data": self.dataroot,
                       "raw": self.rawroot,
@@ -25,7 +25,8 @@ class _Roots:
                       "tmp": self.tmproot,
                       "temp": self.tmproot,
                       "misc": self.miscroot,
-                      "dicom": self.dicomroot}
+                      "hippocrates": self.hippocrates,
+                      "hippo": self.hippocrates}
 
     def __getitem__(self, item):
         if not isinstance(item, str):
