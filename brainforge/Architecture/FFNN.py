@@ -20,7 +20,7 @@ This program is free software: you can redistribute it and/or modify it under
 import math
 import random
 
-from NNModel import FFNN
+from model import FFNN
 from brainforge.activations import *
 from brainforge.cost import Xent
 

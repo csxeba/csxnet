@@ -2,7 +2,7 @@ import sys
 from tkinter import *
 from tkinter.filedialog import askopenfilename
 
-from datamodel import CData, RData
+from data import CData, RData
 
 DATAROOT = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
 LTDIR = "learning_tables/"
