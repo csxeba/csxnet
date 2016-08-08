@@ -1,11 +1,11 @@
 import numpy as np
+from csxnet.nputils import ravel_to_matrix as ravtm
 from scipy.ndimage import convolve
 
+from brainforge.activations import Linear
 from ._LayerBase import _VecLayer, _FCLayer
-from ..Utility.activations import Linear
 from ..Utility.operations import maxpool
 from ..Utility.utility import l2term, l1term
-from csxnet.nputils import ravel_to_matrix as ravtm
 
 
 class PoolLayer(_VecLayer):

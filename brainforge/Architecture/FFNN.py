@@ -17,12 +17,12 @@ This program is free software: you can redistribute it and/or modify it under
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
-import random
 import math
+import random
 
-from .NNModel import FFNN
-from ..Utility.activations import *
-from ..Utility.cost import Xent
+from NNModel import FFNN
+from brainforge.activations import *
+from brainforge.cost import Xent
 
 
 class FFNeuralBrain:
