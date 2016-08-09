@@ -88,6 +88,8 @@ def haversine(coords1: np.ndarray, coords2: np.ndarray):
 def ravel_to_matrix(A):
     """Converts an ndarray to a 2d array (matrix) by keeping the first dimension as the rows
     and flattening all the other dimensions to columns"""
+    if A.ndim == 2:
+        return A
     A = np.atleast_2d(A)
     return A.reshape(A.shape[0], np.prod(A.shape[1:]))
 

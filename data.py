@@ -154,7 +154,10 @@ class _Data:
             self._transformation = None
 
     def fit_pca(self, no_factors: int=None):
+        from sklearn.decomposition import PCA
+
         from csxnet.nputils import ravel_to_matrix as rtm
+
         if self._transformation is not None:
             print("Warning! Appliing transformation to already transformed data! This is untested!")
         self.learning = rtm(self.learning)
@@ -164,13 +167,13 @@ class _Data:
             no_factors = self.learning.shape[-1]
             chain = ""
             if not no_factors:
-                chain += "No factors is unspecified. "
-            print(chain + "Assuming factor number: {}".format(no_factors))
-        if not self._pca:
-            from sklearn.decomposition import PCA
-            self._pca = PCA(n_components=no_factors, whiten=True)
-            self._pca.fit(self.learning)
-            self.learning = self._pca.transform(self.learning)
+                chain += "Number of factors is unspecified. "
+            print(chain + "Assuming {} factors (full).".format(no_factors))
+
+        self._pca = PCA(n_components=no_factors, whiten=True)
+        self._pca.fit(self.learning)
+        self.learning = self._pca.transform(self.learning)
+        self.testing = self.pca(self.testing, no_factors)
         self._transformation = lambda: self.fit_pca(no_factors)
 
     def fit_autoencoder(self, no_features: int, epochs: int=5):
@@ -191,11 +194,14 @@ class _Data:
                                        std=self._standardize_factors[1])
         self._transformation = self.self_standardize
 
-    def pca(self, no_features):
+    def pca(self, X, no_features):
         if not self._pca:
-            self.fit_pca()
-        self.learning = self._pca.transform(self.learning)[..., :no_features]
-        self.testing = self._pca.transform(self.testing)[..., :no_features]
+            raise Exception("No PCA fitted to data! First apply fit_pca()!")
+        X = np.copy(X)
+        X = self._pca.transform(X)
+        if X.shape[1] != no_features:
+            X = X[..., :no_features]
+        return X
 
     def autoencode(self, X):
         X = np.copy(X)
@@ -277,6 +283,8 @@ class CData(_Data):
             self._dummycodes[self.categories.index(category)] = category
 
         self.type = "classification"
+        if self._transformation is not None:
+            self._transformation()
 
     def table(self, data="learning", shuff=True):
         """Returns a learning table"""
@@ -306,7 +314,7 @@ class CData(_Data):
     def neurons_required(self):
         """Returns the required number of input and output neurons
          to process this myData.."""
-        return self.data[0].shape, len(self.categories)
+        return self.learning.shape[1:], len(self.categories)
 
     def average_replications(self):
         if self._pca or self._standardize_factors or self._autoencoder:
@@ -351,8 +359,6 @@ class RData(_Data):
         self._newfctrs = None
 
         self.reset_data()
-        if pca:
-            self.pca(pca)
         self.indeps = np.atleast_2d(self.indeps)
 
     def reset_data(self, shuff=True, transform=True, params=None):
@@ -388,7 +394,7 @@ class RData(_Data):
 
     @property
     def neurons_required(self):
-        return self.data[0].shape, self.indeps.shape[1]
+        return self.learning[0].shape, self.lindeps.shape[1]
 
 
 class Sequence:
