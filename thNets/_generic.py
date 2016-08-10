@@ -1,26 +1,9 @@
-import abc
-
-import numpy as np
 import theano
 import theano.tensor as T
 import theano.tensor.nnet as nnet
 
 
 floatX = theano.config.floatX
-
-
-class _ThLayerBase(abc.ABC):
-    def __init__(self, inshape, position):
-        self.fanin = np.prod(inshape)
-        self.inshape = inshape
-        self.position = position
-
-    @abc.abstractmethod
-    def output(self, intputs, mint): pass
-
-    @property
-    def outshape(self):
-        return None
 
 
 class _CostBase:

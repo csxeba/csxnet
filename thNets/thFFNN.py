@@ -1,17 +1,27 @@
-from ._generic import *
-from ._generic import _ThLayerBase
+import abc
 
 from theano.tensor.signal.downsample import max_pool_2d
 
-from csxnet.brainforge.Architecture.NetworkBase import NeuralNetworkBase
-
-theano.config.exception_verbosity = "high"
-# theano.config.optimizer = "fast_compile"
+from ._generic import *
 
 floatX = theano.config.floatX
 
 print("floatX is set to <{}>".format(floatX))
 print("Device used: <{}>".format(theano.config.device))
+
+
+class _ThLayerBase(abc.ABC):
+    def __init__(self, inshape, position):
+        self.fanin = np.prod(inshape)
+        self.inshape = inshape
+        self.position = position
+
+    @abc.abstractmethod
+    def output(self, intputs, mint): pass
+
+    @property
+    def outshape(self):
+        return None
 
 
 class ThConvPoolLayer(_ThLayerBase):

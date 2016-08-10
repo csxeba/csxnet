@@ -1,13 +1,50 @@
-from brainforge.activations import *
-from brainforge.cost import *
-from .brainforge.Architecture.NetworkBase import NeuralNetworkBase
-from .brainforge.Layerdef.Layers import *
+import math
+import random
+
+from .brainforge.activations import *
+from .brainforge.layers import *
+from .brainforge.cost import *
+from .thNets.thFFNN import *
+from .thNets.thRNN import *
+
+
+class NeuralNetworkBase(abc.ABC):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float):
+
+        # Referencing the data wrapper on which we do the learning
+        self.data = data
+        self.N = data.N
+        self.fanin, self.outsize = data.neurons_required()
+
+        # Parameters required for SGD
+        self.eta = eta
+        self.lmbd1 = lmbd1
+        self.lmbd2 = lmbd2
+        self.mu = mu
+
+        # Containers and self-describing variables
+        self.layers = []
+        self.architecture = []
+        self.age = 0
+        self.name = ""
+
+    @abc.abstractmethod
+    def learn(self, batch_size: int): pass
+
+    @abc.abstractmethod
+    def evaluate(self, on: str): pass
+
+    @abc.abstractmethod
+    def predict(self, questions: np.ndarray): pass
+
+    @abc.abstractmethod
+    def describe(self): pass
 
 
 class Network(NeuralNetworkBase):
     def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost):
 
-        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
+        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu)
 
         self.error = float()
         self.m = int()  # Batch size goes here
@@ -316,3 +353,255 @@ class RNN(Network):
 
     def learn(self, time):
         Network.learn(self, time)
+
+
+class ThNetDynamic(NeuralNetworkBase):
+    def __init__(self, data, eta, lmbd1, lmbd2, mu, cost):
+        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
+
+        inshape, outshape = data.neurons_required()
+
+        if isinstance(inshape, int):
+            inshape = (inshape,)
+
+        self.inputs = T.matrix("Inputs") if len(inshape) == 1 else T.tensor4("Inputs")
+        self.targets = T.matrix("Targets")
+        self.m = T.scalar("m", dtype="float32")
+        self.mint = T.scalar("mint", dtype="int32")
+
+        # Final computational graphs go here
+        self.cost = cost
+        self.output = None
+        self.prediction = None
+
+        # Compiled Theno functions will go here
+        self._fit = None
+        self._evaluate = None
+        self._predict = None
+
+        self.age = 0
+        self.architecture = []
+        self.finalized = False
+
+    def add_convpool(self, conv, filters, pool):
+        pos, fanin = self._layeradd_prepare()
+
+        self.architecture.append("Conv({}x{}x{}); Pool({})".format(filters, conv, conv, pool))
+        self.layers.append(ThConvPoolLayer(conv, filters, pool, fanin, pos))
+
+    def add_fc(self, neurons, activation="sigmoid"):
+        if activation == "softmax":
+            if neurons != self.outsize:
+                print("Warning! Assumed creation of output layer, but got wrong number of neurons!")
+                print("Adjusting neuron number to correct output size:", self.outsize)
+            self.finalize()
+
+        pos, fanin = self._layeradd_prepare()
+
+        self.architecture.append("FC({}): {}".format(neurons, activation[:4]))
+        self.layers.append(ThFCLayer(neurons, fanin, pos, activation))
+
+    def add_rlayer(self, neurons):
+        pos, fanin = self._layeradd_prepare()
+
+        self.architecture.append("Rlayer({}): {}".format(neurons, "tanh"))
+        self.layers.append(ThRLayer(neurons, fanin, pos))
+
+    def add_lstm(self, neurons):
+        pos, fanin = self._layeradd_prepare()
+
+        self.architecture.append("LSTM({}): {}".format(neurons, "tanh"))
+        self.layers.append(ThLSTM(neurons, fanin, pos))
+
+    def _layeradd_prepare(self):
+        pos = len(self.layers)
+        fanin = self.fanin if not pos else self.layers[-1].outshape
+        return pos, fanin
+
+    def finalize(self):
+
+        def define_output_layer():
+            pos, fanin = self._layeradd_prepare()
+            self.architecture.append("Out({}): {}".format(self.outsize, "softmax"))
+            return ThOutputLayer(self.outsize, fanin, pos)
+
+        def define_feedforward():
+            self.mint = self.m.astype("int32")
+            forward_pass_rules = [self.inputs]
+            for layer in self.layers:
+                forward_pass_rules.append(layer.output(forward_pass_rules[-1], self.mint))
+            return forward_pass_rules[-1]
+
+        def define_cost():
+            # Define regularization terms
+            # l1 = sum([T.abs_(layer.weights).sum() for layer in self.layers])
+            # l1 *= self.lmbd1 / (self.data.N / 2)
+            # l2 = sum([T.exp2(layer.weights).sum() for layer in self.layers])
+            # l2 *= self.lmbd2 / (self.data.N * 2)
+
+            # Build string for architecture display
+            chain = "Cost: " + self.cost
+            reg = ""
+            if self.lmbd1 or self.lmbd2:
+                reg += " + "
+            if self.lmbd1:
+                reg += "L1"
+                if self.lmbd2:
+                    reg += " + L2 reg."
+                else:
+                    reg += " reg."
+            if self.lmbd2:
+                reg += "L2 reg."
+            self.architecture.append(chain + reg)
+
+            # Define cost function
+            if self.cost.lower() == "xent":
+                cost = nnet.categorical_crossentropy(
+                    coding_dist=self.output,
+                    true_dist=self.targets).sum()
+            elif self.cost.lower() == "mse":
+                cost = T.exp2(self.targets - self.output).sum()
+            else:
+                raise RuntimeError("Cost function {} not supported!".format(self.cost))
+
+            # cost = cost + l1 + l2
+
+            return cost
+
+        def define_update_rules():
+            rules = []
+            for params in [layer.params for layer in self.layers]:
+                rules.extend([(param, param - (self.eta / self.m) * T.grad(self.cost, param))
+                              for param in params])
+            return rules
+
+        self.layers.append(define_output_layer())
+        self.output = define_feedforward()
+        self.cost = define_cost()
+        self.prediction = T.argmax(self.output, axis=1)
+        updates = define_update_rules()
+
+        self._fit = theano.function(inputs=[self.inputs, self.targets, self.m],
+                                    updates=updates,
+                                    name="_fit")
+
+        self._evaluate = theano.function(inputs=[self.inputs, self.targets, self.m],
+                                         outputs=[self.cost, self.prediction],
+                                         name="_evaluate")
+        self._predict = theano.function(inputs=[self.inputs, self.m],
+                                        outputs=[self.prediction],
+                                        name="_predict")
+        self.finalized = True
+
+    def learn(self, batch_size, verbose=False):
+        if not self.finalized:
+            raise RuntimeError("Unfinalized network!")
+        for i, (questions, targets) in enumerate(self.data.batchgen(batch_size)):
+            m = float(questions.shape[0])
+            self._fit(questions, targets, m)
+            if verbose:
+                print("Done {} batches!".format(i))
+        self.age += 1
+
+    def evaluate(self, on="tesing"):
+        if not self.finalized:
+            raise RuntimeError("Unfinalized network!")
+        m = self.data.n_testing
+        tab = self.data.table(on)
+        qst, idp = tab[0][:m], tab[1][:m]
+        cost, pred = self._evaluate(qst, idp, m)
+        acc = np.mean(np.equal(np.argmax(idp, axis=1), pred))
+        return cost, acc
+
+    def predict(self, questions: np.ndarray):
+        m = questions.shape[0]
+        return self._predict(questions, m)
+
+    def describe(self, verbose=1):
+        chain = "---------------\n"
+        chain += "Dynamic Theano-based Artificial Neural Network.\n"
+        chain += "Age: " + str(self.age) + "\n"
+        chain += "Architecture: " + "; ".join(self.architecture) + "\n"
+        if not self.finalized:
+            chain += "!!! UNFINALIZED !!!"
+        chain += "---------------"
+        if verbose:
+            print(chain)
+        else:
+            return chain
+
+
+class FFNeuralBrain:
+    """Neural-level simulation of the network.
+
+    Significantly slower than LayerBrain, because it instanciates every neuron and doesn't use numpy.
+    It will also be the superclass for the Recurrent Network (or the RLayer)"""
+
+    def __init__(self, rate, layout, activation="sigmoid"):
+
+        print("Warning! Not working, please do not use!")
+
+        self.layout = layout
+        self.rate = rate
+
+        self.activation, self.activation_p = functions[activation]
+
+        self.hiddens = []
+
+        for i, n in enumerate(self.layout[1:]):
+            self.hiddens.append([FFNeuron(inputs=self.layout[i], position=[i + 1, j])
+                                 for j in range(n)])
+
+        self.inputL = [InputNeuron(layout[0]) for _ in range(self.layout[0])]
+        self.outputL = self.hiddens[-1]
+        self.layers = [self.inputL] + self.hiddens
+
+        self.stimuli = None
+        self.error = 0
+        self.age = 0
+
+    def think(self, stimuli):
+        return np.array([self._feedforward(stimulus) for stimulus in stimuli])
+
+    def learn(self, table):
+        for lesson, target in zip(table[0], table[1]):
+            self._feedforward(stimulus=lesson)
+            self._backpropagation(targets=target)
+            self._weight_update()
+            self.error = sum([neu.error for neu in self.hiddens[-1]])
+
+    def shuffle(self, zero):
+        for i in self.hiddens:
+            for j in i:
+                if zero:
+                    j.weights = [0 for _ in range(len(j.weights))]
+                else:
+                    j.weights = [random.gauss(0, 1) for _ in range(len(j.weights))]
+
+    def _feedforward(self, stimulus):
+        stimulus = list(stimulus)
+        for layer in self.layers:
+            stimulus = [neuron.fire(stimulus) for neuron in layer]
+
+        return stimulus
+
+    def _backpropagation(self, targets):
+        for target, neu in zip(targets, self.outputL):
+            neu.error = self.activation_p(neu.excitation) * (target - neu.output)
+
+        for layer in self.hiddens[-2::-1]:
+            for neu in layer:
+                neu.error = self.activation_p(neu.excitation) * \
+                            sum([neu1.error * neu1.weights[neu.position[1]]
+                                 for neu1 in self.layers[neu.position[0] + 1]])
+
+    def _weight_update(self):
+        for layer, prevLayer in zip(self.layers[-1:0:-1],
+                                    self.layers[-2::-1]):
+            for neu in layer:
+                neu.weights = [weight + prevLayer[index].output * neu.error * self.rate
+                               for index, weight in enumerate(neu.weights)]
+                neu.bias += neu.error
+
+    def _sigmoid(self, z):
+        return 1 / (1 + math.exp(-z))
