@@ -3,11 +3,10 @@ import abc
 import numpy as np
 from scipy.ndimage import convolve
 
-from brainforge.activations import Linear
-from nputils import maxpool
-from utilities import l1term, l2term
+from .activations import Linear
 
-from csxnet.nputils import ravel_to_matrix as ravtm, outshape, calcsteps
+from csxnet.utilities.nputils import maxpool, ravel_to_matrix as rtm, outshape, calcsteps
+from csxnet.utilities.pure import l1term, l2term
 
 
 class _LayerBase(abc.ABC):
@@ -161,7 +160,7 @@ class ConvLayer(_VecLayer):
                            activation=activation)
 
         chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
-        raise RuntimeError(chain)
+        print(chain)
         self.inputs = np.zeros(self.inshape)
         self.outshape = num_filters, self.outshape[0], self.outshape[1]
         self.filters = np.random.randn(num_filters, np.prod(fshape)) / np.sqrt(np.prod(inshape))
@@ -255,7 +254,7 @@ class ConvLayer(_VecLayer):
                     # these matrices are then summed elementwise.
                     cvm_old = convolve(self.inputs[l][j], self.error[l][i], self.stride)
                     cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
-                    eq = np.equal(cvm, cvm_old)
+                    # eq = np.equal(cvm, cvm_old)
                     delta[i, j, ...] += cvm  # Averaging over lessons in the batch
 
         # L2 regularization aka weight decay
@@ -295,7 +294,7 @@ class FFLayer(_FCLayer):
         :param questions: numpy.ndarray of shape (lessons, prev_layer_output)
         :return: numpy.ndarray: transformed matrix
         """
-        self.inputs = ravtm(questions)
+        self.inputs = rtm(questions)
         self.output = self.predict(questions)
         return self.output
 
@@ -308,7 +307,7 @@ class FFLayer(_FCLayer):
         :param questions:
         :return:
         """
-        return self.activation(np.dot(ravtm(questions), self.weights) + self.biases)
+        return self.activation(np.dot(rtm(questions), self.weights) + self.biases)
 
     def backpropagation(self):
         """
@@ -376,7 +375,7 @@ class DropOut(FFLayer):
         self.mask = None
 
     def feedforward(self, questions):
-        self.inputs = ravtm(questions)
+        self.inputs = rtm(questions)
         self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
         Z = (np.dot(self.inputs, self.weights) + self.biases) * self.mask
         self.output = self.activation(Z)
@@ -423,7 +422,7 @@ class RLayer(FFLayer):
         self._grad_rweights = np.zeros_like(self.rweights)
 
     def feedforward(self, questions):
-        self.inputs = ravtm(questions)
+        self.inputs = rtm(questions)
         time = questions.shape[0]
         self.output = np.zeros((time+1, self.outshape))
         preact = np.dot(self.inputs, self.weights)
@@ -456,7 +455,7 @@ class RLayer(FFLayer):
         :param error: T x N shaped, where T is time and N is the number of neurons
         :return: None
         """
-        self.error = ravtm(error)
+        self.error = rtm(error)
 
     def weight_update(self):
         self.weights -= self.brain.eta * self._grad_weights

@@ -1,7 +1,7 @@
 import sys
 
-from csxnet.thNets.thModels import ThNetDynamic
-from csxnet.datamodel import CData, mnist_to_lt
+from csxnet.model import ThNetDynamic
+from csxnet.data import CData, mnist_to_lt
 
 dataroot = "D:/Data/" if sys.platform == "win32" else "/data/Prog/data/"
 miscroot = dataroot + "misc/"
@@ -20,7 +20,7 @@ def teach(net, epochs=10, bsize=10):
 
 print("Pulling data")
 data = CData(mnist_to_lt(miscpath))
-data.standardize()
+data.self_standardize()
 
 print("Building network")
 thnet = ThNetDynamic(data, 0.1, 0.0, 5.0, 0.0, "xent")

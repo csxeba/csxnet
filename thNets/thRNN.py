@@ -1,5 +1,8 @@
+import numpy as np
+
 from ._generic import *
-from ._generic import _ThLayerBase
+# noinspection PyProtectedMember
+from .thFFNN import _ThLayerBase
 
 
 class ThRLayer(_ThLayerBase):

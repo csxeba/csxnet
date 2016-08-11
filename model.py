@@ -1,6 +1,3 @@
-import math
-import random
-
 from .brainforge.activations import *
 from .brainforge.layers import *
 from .brainforge.cost import *
@@ -133,7 +130,7 @@ class Network(NeuralNetworkBase):
         self.N = self.data.N
         for batch in self.data.batchgen(batch_size):
             self.m = batch[0].shape[0]
-            self._fit((batch[0], ravtm(batch[0])))
+            self._fit((batch[0], rtm(batch[0])))
 
     def new_autoencode(self, batches, batch_size):
 
@@ -147,7 +144,7 @@ class Network(NeuralNetworkBase):
             for no in range(batches):
                 stimuli = questions[no*batch_size:(no*batch_size)+batch_size]
                 self.m = stimuli.shape[0]
-                target = ravtm(stimuli)
+                target = rtm(stimuli)
                 self.encoder.error = self.cost.derivative(
                     self.encoder.feedforward(stimuli),
                     target,
@@ -162,7 +159,7 @@ class Network(NeuralNetworkBase):
                 for no in range(batches):
                     batch = questions[no*batch_size:(no*batch_size)+batch_size]
                     self.m = batch.shape[0]
-                    target = ravtm(batch)
+                    target = rtm(batch)
                     for lyr in autoencoder:
                         lyr.feedforward(batch)
                     self.encoder.error = self.cost.derivative(self.encoder.output,
@@ -260,7 +257,6 @@ class Network(NeuralNetworkBase):
     # ---- Private helper methods ----
 
     def _insert_encoder(self):
-        from ..Utility.cost import MSE
         if not isinstance(self.cost, MSE) or self.cost is not MSE:
             print("Chosen cost function not supported in autoencoding!\nAttention! Falling back to MSE!")
             self.cost = MSE()
@@ -306,7 +302,7 @@ class Network(NeuralNetworkBase):
         assert all([(isinstance(layer.activation, Sigmoid)) or (layer.activation is Sigmoid)
                     for layer in self.layers[1:]]), "Only Sigmoid is supported!"
 
-        from csxnet.nputils import logit
+        from csxnet.utilities.nputils import logit
 
         print("Warning! Network.dream() is highly experimental and possibly buggy!")
 
@@ -357,9 +353,9 @@ class RNN(Network):
 
 class ThNetDynamic(NeuralNetworkBase):
     def __init__(self, data, eta, lmbd1, lmbd2, mu, cost):
-        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, cost)
+        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu)
 
-        inshape, outshape = data.neurons_required()
+        inshape, _ = data.neurons_required()
 
         if isinstance(inshape, int):
             inshape = (inshape,)
@@ -529,79 +525,3 @@ class ThNetDynamic(NeuralNetworkBase):
             print(chain)
         else:
             return chain
-
-
-class FFNeuralBrain:
-    """Neural-level simulation of the network.
-
-    Significantly slower than LayerBrain, because it instanciates every neuron and doesn't use numpy.
-    It will also be the superclass for the Recurrent Network (or the RLayer)"""
-
-    def __init__(self, rate, layout, activation="sigmoid"):
-
-        print("Warning! Not working, please do not use!")
-
-        self.layout = layout
-        self.rate = rate
-
-        self.activation, self.activation_p = functions[activation]
-
-        self.hiddens = []
-
-        for i, n in enumerate(self.layout[1:]):
-            self.hiddens.append([FFNeuron(inputs=self.layout[i], position=[i + 1, j])
-                                 for j in range(n)])
-
-        self.inputL = [InputNeuron(layout[0]) for _ in range(self.layout[0])]
-        self.outputL = self.hiddens[-1]
-        self.layers = [self.inputL] + self.hiddens
-
-        self.stimuli = None
-        self.error = 0
-        self.age = 0
-
-    def think(self, stimuli):
-        return np.array([self._feedforward(stimulus) for stimulus in stimuli])
-
-    def learn(self, table):
-        for lesson, target in zip(table[0], table[1]):
-            self._feedforward(stimulus=lesson)
-            self._backpropagation(targets=target)
-            self._weight_update()
-            self.error = sum([neu.error for neu in self.hiddens[-1]])
-
-    def shuffle(self, zero):
-        for i in self.hiddens:
-            for j in i:
-                if zero:
-                    j.weights = [0 for _ in range(len(j.weights))]
-                else:
-                    j.weights = [random.gauss(0, 1) for _ in range(len(j.weights))]
-
-    def _feedforward(self, stimulus):
-        stimulus = list(stimulus)
-        for layer in self.layers:
-            stimulus = [neuron.fire(stimulus) for neuron in layer]
-
-        return stimulus
-
-    def _backpropagation(self, targets):
-        for target, neu in zip(targets, self.outputL):
-            neu.error = self.activation_p(neu.excitation) * (target - neu.output)
-
-        for layer in self.hiddens[-2::-1]:
-            for neu in layer:
-                neu.error = self.activation_p(neu.excitation) * \
-                            sum([neu1.error * neu1.weights[neu.position[1]]
-                                 for neu1 in self.layers[neu.position[0] + 1]])
-
-    def _weight_update(self):
-        for layer, prevLayer in zip(self.layers[-1:0:-1],
-                                    self.layers[-2::-1]):
-            for neu in layer:
-                neu.weights = [weight + prevLayer[index].output * neu.error * self.rate
-                               for index, weight in enumerate(neu.weights)]
-                neu.bias += neu.error
-
-    def _sigmoid(self, z):
-        return 1 / (1 + math.exp(-z))

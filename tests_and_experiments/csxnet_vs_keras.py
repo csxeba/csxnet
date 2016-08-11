@@ -1,16 +1,16 @@
 import time
 
-from csxnet.utilities import roots
-from csxnet.datamodel import CData, mnist_to_lt
+from csxnet.utilities.pure import roots
+from csxnet.data import CData, mnist_to_lt
 
 datapath = roots["misc"] + "mnist.pkl.gz"
 data = CData(mnist_to_lt(datapath, reshape=False), cross_val=.2, header=False, pca=0)
-data.standardize()
+data.self_standardize()
 
 
 def time_csxnet():
     start = time.time()
-    from csxnet.brainforge.Architecture.NNModel import Network
+    from csxnet.model import Network
     nw = Network(data, 0.3, 0.0, 0.0, 0.0, "xent")
     nw.add_fc(120)
     nw.finalize_architecture()

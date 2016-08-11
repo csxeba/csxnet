@@ -50,7 +50,7 @@ def euclidean(itr, target):
 
 def chooseN(iterable: list, N=1):
     """Choose N elements randomly from an iterable and remove the element"""
-    return [choose(iterable) for _ in range(N)]  #TODO: untested
+    return [choose(iterable) for _ in range(N)]  # TODO: untested
 
 
 def choose(iterable: list):

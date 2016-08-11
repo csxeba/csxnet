@@ -1,8 +1,8 @@
 from keras.models import Sequential
 from keras.layers import Dense
 
-from csxnet.datamodel import CData
-from csxnet.utilities import roots
+from csxnet.data import CData
+from csxnet.utilities.pure import roots
 
 
 def pull_data(path):

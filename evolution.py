@@ -18,7 +18,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>..
 import time
 import random
 
-from csxnet.utilities import avg, feature_scale
+from .utilities.pure import avg, feature_scale
 
 
 # I hereby state that

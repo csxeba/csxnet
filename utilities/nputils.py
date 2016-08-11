@@ -108,10 +108,10 @@ def avg2pool(matrix):
     """Does average-pooling with stride and filter size = 2"""
     if ((matrix.shape[1] - 2) % 2) != 0:
         raise RuntimeError("Non-integer output shape!")
-    outshape = matrix.shape[0], (matrix.shape[1] - 2) // 2
+    osh = matrix.shape[0], (matrix.shape[1] - 2) // 2
 
-    avg = matrix[:, ::2][:outshape[1]] + \
-        matrix[:, 1::2][:outshape[1]]
+    avg = matrix[:, ::2][:osh[1]] + \
+        matrix[:, 1::2][:osh[1]]
     avg /= 2
     return avg
 
@@ -154,7 +154,7 @@ def export_to_file(path: str, data: np.ndarray, labels=None, headers=None):
 
 
 def import_from_csv(path: str, labels: int=1, headers: bool=True, sep="\t", end="\n",
-                    floatX="float32", encoding=None) -> tuple:
+                    dtype=None, encoding=None) -> tuple:
     """Returns with the tuple: (data, label, headers)"""
     label, header = None, None
     with open(path, "r", encoding=encoding) as file:
@@ -170,7 +170,9 @@ def import_from_csv(path: str, labels: int=1, headers: bool=True, sep="\t", end=
     if labels:
         label = data[..., :labels]
         data = data[..., labels:]
-    data = data.astype(floatX)
+    if dtype is None:
+        dtype = floatX
+    data = data.astype(dtype=dtype)
     return data, label, header
 
 
@@ -317,8 +319,7 @@ class Test:
 
     @staticmethod
     def avgpool():
-        x = np.zeros((100,))
-        # TODO: finish this
+        pass
 
 
 if __name__ == '__main__':

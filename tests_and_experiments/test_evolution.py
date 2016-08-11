@@ -4,12 +4,12 @@ from csxnet.evolution import Population, describe
 
 
 def test_evolution():
-    def fn1(ind, queue=None):
-        from utilities import euclidean
+    def fn1(ind, _=None):
+        from csxnet.utilities.pure import euclidean
         target = [50] * len(ind.genome)
         ind.fitness = euclidean(ind.genome, target)
 
-    def fn2(ind, queue=None):
+    def fn2(ind, _=None):
         ind.fitness = sum(ind.genome)
 
     limit = 1000

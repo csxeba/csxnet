@@ -5,7 +5,7 @@ import os
 import numpy
 import theano
 
-from csxnet.utilities import roots
+from utilities.pure import roots
 
 miscpath = roots["misc"] + "imdb.pkl"
 
@@ -135,8 +135,8 @@ def load_data(path=miscpath, n_words=100000, valid_portion=0.1, maxlen=None, sor
     train_set = (train_set_x, train_set_y)
     valid_set = (valid_set_x, valid_set_y)
 
-    def remove_unk(x):
-        return [[1 if w >= n_words else w for w in sen] for sen in x]
+    def remove_unk(x_):
+        return [[1 if w >= n_words else w for w in sen] for sen in x_]
 
     test_set_x, test_set_y = test_set
     valid_set_x, valid_set_y = valid_set
@@ -147,7 +147,7 @@ def load_data(path=miscpath, n_words=100000, valid_portion=0.1, maxlen=None, sor
     test_set_x = remove_unk(test_set_x)
 
     def len_argsort(seq):
-        return sorted(range(len(seq)), key=lambda x: len(seq[x]))
+        return sorted(range(len(seq)), key=lambda x_: len(seq[x_]))
 
     if sort_by_len:
         sorted_index = len_argsort(test_set_x)

@@ -1,6 +1,6 @@
 import numpy as np
 
-from .nputils import floatX
+from .utilities.nputils import floatX
 
 YAY = 1.0
 NAY = 0.0
@@ -155,8 +155,7 @@ class _Data:
 
     def fit_pca(self, no_factors: int=None):
         from sklearn.decomposition import PCA
-
-        from csxnet.nputils import ravel_to_matrix as rtm
+        from .utilities.nputils import ravel_to_matrix as rtm
 
         if self._transformation is not None:
             print("Warning! Appliing transformation to already transformed data! This is untested!")
@@ -177,14 +176,15 @@ class _Data:
         self._transformation = lambda: self.fit_pca(no_factors)
 
     def fit_autoencoder(self, no_features: int, epochs: int=5):
-        from csxnet.high_utils import autoencode
+        from .utilities.high_utils import autoencode
+
         self.learning, self._autoencoder = autoencode(self.learning, no_features, epochs=epochs,
                                                       validation=self.testing, get_model=True)
         self.testing = self.autoencode(self.testing)
         self._transformation = lambda: self.fit_autoencoder(no_features=no_features, epochs=epochs)
 
     def self_standardize(self, no_factors: int=None):
-        from csxnet.nputils import standardize
+        from utilities.nputils import standardize
         del no_factors
         self.learning, mean, std = standardize(self.learning, return_factors=True)
         self._standardize_factors = mean, std
@@ -364,7 +364,8 @@ class RData(_Data):
     def reset_data(self, shuff=True, transform=True, params=None):
         _Data.reset_data(self, shuff, transform, params)
         if not self._downscaled:
-            from .nputils import featscale
+            from utilities.nputils import featscale
+
             self.lindeps, self._oldfctrs, self._newfctrs = \
                 featscale(self.lindeps, axis=0, ufctr=(0.1, 0.9), getfctrs=True)
             self._downscaled = True
@@ -382,7 +383,7 @@ class RData(_Data):
             else:
                 return self._oldfctrs, self._newfctrs
 
-        from .nputils import featscale
+        from utilities.nputils import featscale
         fctr_list = sanitize()
         return featscale(A, axis=0, dfctr=fctr_list[0], ufctr=fctr_list[1])
 
@@ -453,7 +454,7 @@ class Sequence:
 class Text(Sequence):
     def __init__(self, source, limit=8000, vocabulary=None,
                  embed=False, embeddim=0, tokenize=False):
-        Sequence.__init__(self, source, embed, embeddim, tokenize)
+        Sequence.__init__(self, source)
         self._raw = source
         self._tokenized = False
         self._embedded = False
@@ -497,7 +498,7 @@ class Text(Sequence):
             else:
                 raise RuntimeError("Wrong vocabulary format!")
             self._vocabulary = vocabulary
-            self.data = build_learning_data(emb)
+            self.data = build_learning_data()
 
         def ask_for_input():
             v = None
@@ -527,7 +528,7 @@ class Text(Sequence):
 
             return voc, dic
 
-        def build_learning_data(emb):
+        def build_learning_data():
             data = []
             for i, sentence in enumerate(self._raw):
                 s = []
@@ -549,7 +550,7 @@ class Text(Sequence):
         self._vocabulary, self._dictionary = build_vocabulary()
 
         embdim = embeddim if embed else vlimit
-        self.data = build_learning_data(embdim)
+        self.data = build_learning_data()
 
     def batchgen(self, size=None):
         sentences = np.copy(self.data)
@@ -582,20 +583,6 @@ class Text2:
         embedding = dict(zip(sorted(vocabulary), embedding))
         return Text2(chain, embedding)
 
-    @classmethod
-    def wordwise_NotImplemented(cls, chain: str, vocabulary=None, embed=0):
-        raise NotImplementedError("Factory method not yet implemented!")
-        if vocabulary is None:
-            vocabulary = ["<SENTECE_START>"] + list(set(chain)) + ["<SENTECE_END>"]
-        if embed:
-            print("Embedding words into {} dimensional space!".format(embed))
-            embedding = np.random.randn(len(vocabulary), embed).astype(floatX), vocabulary
-        else:
-            print("Tokenizing words...")
-            embedding = np.eye(len(vocabulary)).astype(floatX)
-        embedding = dict(zip(vocabulary, embedding))
-        return Text2(chain, embedding)
-
     @property
     def neurons_required(self):
         embeddim = self._dictionary[0].shape[1]
@@ -619,7 +606,8 @@ class Text2:
             return self._keys[np.argmax(output)]
 
         def from_embedding():
-            from csxnet.nputils import euclidean
+            from utilities.nputils import euclidean
+
             if self._keys is None or self._values is None:
                 self._keys, self._values = list(zip(*list(self._dictionary.items())))
             return self._keys[np.argmin(
@@ -682,6 +670,7 @@ def unpickle_gzip(source: str, coding='latin1'):
     f = gzip.open(source)
     if coding:
         with f:
+            # noinspection PyProtectedMember
             u = pickle._Unpickler(f)
             u.encoding = coding
             tup = u.load()

@@ -1,5 +1,6 @@
 import abc
 
+import numpy as np
 from theano.tensor.signal.downsample import max_pool_2d
 
 from ._generic import *
@@ -85,5 +86,6 @@ class ThOutputLayer(ThFCLayer):
 
 class ThDropoutLayer(ThFCLayer):
     def __init__(self, neurons, inshape, dropchance, position, activation="sigmoid"):
+        del dropchance
         ThFCLayer.__init__(neurons, inshape, position, activation)
         print("Dropout not implemented yet, falling back to ThFCLayer!")

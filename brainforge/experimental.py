@@ -1,9 +1,10 @@
 """My crazy expreminets are taking place here"""
-from csxnet.brainforge.layers import InputLayer, ConvLayer, PoolLayer, FFLayer, DropOut, _LayerBase
-from csxnet.model import NeuralNetworkBase
-from csxnet.nputils import combination
+from csxnet.brainforge.layers import *
+from csxnet.model import NeuralNetworkBase, Network
+from csxnet.utilities.nputils import combination
 
-from model import Network
+# noinspection PyProtectedMember
+from csxnet.brainforge.layers import _LayerBase
 
 
 class Abomination:
@@ -27,6 +28,7 @@ class Abomination:
 
 class AboLayer(_LayerBase):
     def __init__(self, brain: Abomination, no_minions):
+        _LayerBase.__init__(self, brain, 0, "sigmoid")
         self.brain = brain
         self.fanin = brain.layers[-1].fanout
         self.neurons = []
@@ -35,7 +37,7 @@ class AboLayer(_LayerBase):
             self.neurons.append(self._forge_minion())
 
     def _forge_minion(self):
-        minion = Network(self.brain.data, self.brain.eta, self.brain.lmbd, self.brain.cost)
+        minion = Network(self.brain.data, self.brain.eta, self.brain.lmbd, 0.0, 0.0, self.brain.cost)
         minion.add_fc(10)
         minion.finalize_architecture()
         return minion

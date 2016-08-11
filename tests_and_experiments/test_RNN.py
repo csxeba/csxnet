@@ -1,5 +1,5 @@
-from csxnet.datamodel import Sequence
-from csxnet.utilities import roots
+from csxnet.data import Sequence
+from csxnet.utilities.pure import roots
 
 vocabulary_size = 8000
 unknown_token = "<UNK>"
@@ -98,7 +98,8 @@ def main():
     data = pull_reddit_data2(datapath)
     net = getrnn(data)
     print("Teaching network...")
-    net.fit(time)
+    X, y = data.table()
+    net.fit(X, y)
 
 if __name__ == '__main__':
     main()

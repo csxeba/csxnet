@@ -2,7 +2,7 @@ import numpy as np
 
 
 def test_categorical():
-    from csxnet.utilities import roots
+    from csxnet.utilities.pure import roots
     from csxnet.data import CData, mnist_to_lt
 
     lt = mnist_to_lt(roots["misc"] + "mnist.pkl.gz", reshape=False)

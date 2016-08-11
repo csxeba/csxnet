@@ -1,8 +1,8 @@
 from csxnet.model import Network
 from csxnet.brainforge.activations import *
-from csxnet.brainforge.cost import Xent, MSE
+from csxnet.brainforge.cost import Xent
 from csxnet.data import CData, mnist_to_lt
-from csxnet.utilities import roots
+from csxnet.utilities.pure import roots
 
 datapath = roots["misc"]
 mnistpath = datapath + "mnist.pkl.gz"
@@ -13,7 +13,7 @@ def get_mnist_data(path):
     pca = 0
     lt = mnist_to_lt(path)
     data = CData(lt, cross_val=0.18, pca=pca)
-    data.standardize()
+    data.self_standardize()
     return data
 
 

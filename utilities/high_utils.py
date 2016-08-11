@@ -12,7 +12,7 @@ def autoencode(X: np.ndarray, hiddens, validation: np.ndarray, epochs=5,
     from keras.layers.core import Dense
     from keras.optimizers import Adadelta
 
-    from csxnet.nputils import standardize
+    from .nputils import standardize
 
     def sanitize(ftrs):
         if isinstance(hiddens, int):
@@ -106,7 +106,8 @@ def th_haversine():
     """Returns a reference to the compiled haversine function!"""
     from theano import tensor as T
     from theano import function
-    from csxnet.nputils import floatX
+
+    from .nputils import floatX
 
     coords1 = T.matrix("Coords1", dtype=floatX)
     coords2 = T.matrix("Coords2", dtype=floatX)
