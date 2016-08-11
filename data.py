@@ -1,6 +1,6 @@
 """
 Frame for holding multidimensional data and to interact with it.
-Copyright (C) 2016 Csaba Gór
+Copyright (C) 2016  Csaba Gór
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
