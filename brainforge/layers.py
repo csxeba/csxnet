@@ -5,8 +5,8 @@ from scipy.ndimage import convolve
 
 from .activations import Linear
 
-from csxnet.utilities.nputils import maxpool, ravel_to_matrix as rtm, outshape, calcsteps
-from csxnet.utilities.pure import l1term, l2term
+from ..utilities.nputils import maxpool, ravel_to_matrix as rtm, outshape, calcsteps
+from ..utilities.pure import l1term, l2term
 
 
 class _LayerBase(abc.ABC):
@@ -252,8 +252,8 @@ class ConvLayer(_VecLayer):
                 for j in range(c):  # jth input channel of c channels
                     # Every channel in the input gets convolved with the error matrix of the filter
                     # these matrices are then summed elementwise.
-                    cvm_old = convolve(self.inputs[l][j], self.error[l][i], self.stride)
-                    cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
+                    cvm = convolve(self.inputs[l][j], self.error[l][i], mode="same")
+                    # cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
                     # eq = np.equal(cvm, cvm_old)
                     delta[i, j, ...] += cvm  # Averaging over lessons in the batch
 
