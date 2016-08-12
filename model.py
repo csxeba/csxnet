@@ -29,7 +29,7 @@ class NeuralNetworkBase(abc.ABC):
         # Referencing the data wrapper on which we do the learning
         self.data = data
         self.N = data.N
-        self.fanin, self.outsize = data.neurons_required()
+        self.fanin, self.outsize = data.neurons_required
 
         # Parameters required for SGD
         self.eta = eta

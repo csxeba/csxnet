@@ -3,18 +3,19 @@ import time
 from csxnet.evolution import Population, describe
 
 
-def test_evolution():
-    def fn(ind, _=None):
-        from csxdata.utilities.pure import euclidean
-        target = [50] * len(ind.genome)
-        ind.fitness = euclidean(ind.genome, target)
+def fn(ind, queue=None):
+    from csxdata.utilities.pure import euclidean
+    target = [50] * len(ind.genome)
+    ind.fitness = euclidean(ind.genome, target)
 
+
+def test_evolution():
     limit = 1000
     survivors = 0.4
     crossing_over_rate = 0.2
     mutation_rate = 0.01
     max_offsprings = 3
-    epochs = 1000
+    epochs = 300
     verbose = 1
     fitness = fn
     genome_len = 10
@@ -28,7 +29,7 @@ def test_evolution():
                           fitness_function=fitness,
                           max_offsprings=max_offsprings,
                           ranges=ranges,
-                          parallel=True)
+                          parallel=False)
 
     print("Population created with {} individuals".format(len(demo_pop.individuals)))
     describe(demo_pop, 3)

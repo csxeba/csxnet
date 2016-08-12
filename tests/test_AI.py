@@ -4,6 +4,7 @@ from csxnet.brainforge.cost import Xent
 
 from csxdata.frames import CData
 from csxdata.utilities.const import roots
+from csxdata.utilities.parsers import mnist_tolearningtable
 
 
 datapath = roots["misc"]
@@ -13,7 +14,7 @@ log = ""
 
 def get_mnist_data(path):
     pca = 0
-    lt = mnist_to_lt(path)
+    lt = mnist_tolearningtable(path)
     data = CData(lt, cross_val=0.18, pca=pca)
     data.self_standardize()
     return data
@@ -63,7 +64,7 @@ def test_ANN(net="FF"):
         log += "E:{}\nC:{}\nT:{}\nL:{}\n\n".format(epoch+1, net.error, ont, onl)
 
 if __name__ == '__main__':
-    test_ANN("D")
+    test_ANN("FF")
     with open("./logs/testDropOut_log.txt", "w") as outfl:
         outfl.write(log)
         outfl.close()
