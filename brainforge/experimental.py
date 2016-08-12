@@ -1,10 +1,10 @@
 """My crazy expreminets are taking place here"""
 from csxnet.brainforge.layers import *
 from csxnet.model import NeuralNetworkBase, Network
-from csxnet.utilities.nputils import combination
-
 # noinspection PyProtectedMember
 from csxnet.brainforge.layers import _LayerBase
+
+from csxdata.utilities.nputils import combination
 
 
 class Abomination:

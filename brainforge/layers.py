@@ -4,9 +4,9 @@ import numpy as np
 from scipy.ndimage import convolve
 
 from .activations import Linear
+from ..util.nnutil import l1term, l2term, outshape, calcsteps
 
-from ..utilities.nputils import maxpool, ravel_to_matrix as rtm, outshape, calcsteps
-from ..utilities.pure import l1term, l2term
+from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
 
 
 class _LayerBase(abc.ABC):

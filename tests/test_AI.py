@@ -1,8 +1,10 @@
 from csxnet.model import Network
 from csxnet.brainforge.activations import *
 from csxnet.brainforge.cost import Xent
-from csxnet.data import CData, mnist_to_lt
-from csxnet.utilities.pure import roots
+
+from csxdata.frames import CData
+from csxdata.utilities.const import roots
+
 
 datapath = roots["misc"]
 mnistpath = datapath + "mnist.pkl.gz"

@@ -19,7 +19,8 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 from .brainforge.activations import *
 from .brainforge.cost import *
-from .utilities.nputils import ravel_to_matrix as rtm
+
+from csxdata.utilities.nputils import ravel_to_matrix as rtm
 
 
 class NeuralNetworkBase(abc.ABC):
@@ -326,7 +327,7 @@ class Network(NeuralNetworkBase):
         assert all([(isinstance(layer.activation, Sigmoid)) or (layer.activation is Sigmoid)
                     for layer in self.layers[1:]]), "Only Sigmoid is supported!"
 
-        from csxnet.utilities.nputils import logit
+        from csxdata.utilities.nputils import logit
 
         print("Warning! Network.dream() is highly experimental and possibly buggy!")
 

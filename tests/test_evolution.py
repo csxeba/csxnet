@@ -4,13 +4,10 @@ from csxnet.evolution import Population, describe
 
 
 def test_evolution():
-    def fn1(ind, _=None):
-        from csxnet.utilities.pure import euclidean
+    def fn(ind, _=None):
+        from csxdata.utilities.pure import euclidean
         target = [50] * len(ind.genome)
         ind.fitness = euclidean(ind.genome, target)
-
-    def fn2(ind, _=None):
-        ind.fitness = sum(ind.genome)
 
     limit = 1000
     survivors = 0.4
@@ -19,7 +16,7 @@ def test_evolution():
     max_offsprings = 3
     epochs = 1000
     verbose = 1
-    fitness = fn1
+    fitness = fn
     genome_len = 10
 
     ranges = [(0, 100) for _ in range(genome_len)]

@@ -1,8 +1,8 @@
 from brainforge.activations import *
 from brainforge.cost import *
 
-from csxnet.model import Network, FFNN
-from csxnet.data import CData
+from csxnet.model import Network
+from csxdata.frames import CData
 
 
 class OnMNIST:
@@ -43,19 +43,6 @@ class OnMNIST:
         net.finalize_architecture(activation=Sigmoid)
 
         epochs = 10
-
-        return net, epochs
-
-    @staticmethod
-    def from_FFClass():
-        eta = 0.8
-        lmbda = 5.0
-        cost = Xent
-
-        epochs = 30
-
-        net = FFNN(hiddens=(80,), data=OnMNIST.data, eta=eta, lmbd1=lmbda, lmbd2=0.0, mu=0.0,
-                   cost=cost, activation=Sigmoid)
 
         return net, epochs
 
