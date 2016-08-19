@@ -215,7 +215,7 @@ class Network(NeuralNetworkBase):
         layer computes the error of the previous layer and the
         backprop methods return with the computed error array
 
-        :param learning_table: tuple of 2 numpy arrays: (stimuli, targets)
+        :param learning_table: tuple of 2 numpy arrays: (stimuli, _embedments)
         :return: None
         """
 
