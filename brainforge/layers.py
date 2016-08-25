@@ -3,8 +3,8 @@ import abc
 import numpy as np
 from scipy.ndimage import convolve
 
-from .activations import Linear
-from ..util.nnutil import l1term, l2term, outshape, calcsteps
+from .activations import Linear, Sigmoid, Tanh
+from ..util import l1term, l2term, outshape, calcsteps, white
 
 from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
 
@@ -167,7 +167,7 @@ class ConvLayer(_VecLayer):
         print(chain)
         self.inputs = np.zeros(self.inshape)
         self.outshape = num_filters, self.outshape[0], self.outshape[1]
-        self.filters = np.random.randn(num_filters, np.prod(fshape)) / np.sqrt(np.prod(inshape))
+        self.filters = white(num_filters, np.prod(fshape))
         self.grad_filters = np.zeros_like(self.filters)
         print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
               .format(self.inshape, self.outshape, position))
@@ -282,7 +282,7 @@ class FFLayer(_FCLayer):
                           neurons=neurons, position=position,
                           activation=activation)
 
-        self.weights = np.random.randn(inputs, neurons) / np.sqrt(inputs)
+        self.weights = white(inputs, neurons)
         self._grad_weights = np.zeros_like(self.weights)
         self._old_grads = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
@@ -416,106 +416,6 @@ class DropOut(FFLayer):
                     out=self.biases)
 
 
-class RLayer(FFLayer):
-    def __init__(self, brain, inputs, neurons, time_truncate, position, activation):
-        FFLayer.__init__(self, brain, inputs, neurons, position, activation)
-
-        self.time_truncate = time_truncate
-        self.rweights = np.random.randn(neurons, neurons)
-        self._grad_rweights = np.zeros_like(self.rweights)
-
-    def feedforward(self, questions):
-        self.inputs = rtm(questions)
-        time = questions.shape[0]
-        self.output = np.zeros((time+1, self.outshape))
-        preact = np.dot(self.inputs, self.weights)
-        for t in range(time):
-            self.output[t] = self.activation(
-                preact[t] + np.dot(self.output[t-1], self.rweights)
-            )
-        return self.output
-
-    def backpropagation(self):
-        """Backpropagation through time (BPTT)"""
-        T = self.error.shape[0]
-        self._grad_weights = np.zeros(self.weights.shape)
-        self._grad_rweights = np.zeros(self.rweights.shape)
-        prev_error = np.zeros_like(self.inputs)
-        for t in range(0, T, step=-1):
-            t_delta = self.error[t]
-            for bptt in range(max(0, t-self.time_truncate), t+1, step=-1):
-                # TODO: check the order of parameters. Transposition possibly needed somewhere
-                self._grad_rweights += np.outer(t_delta, self.output[bptt - 1])
-                self._grad_weights += np.dot(self._grad_weights, self.inputs) + t_delta
-                t_delta = self.rweights.dot(t_delta) * self.activation.derivative(self.output[bptt-1])
-            prev_error[t] = t_delta
-        return prev_error
-
-    def receive_error(self, error):
-        """
-        Transforms the received error tensor to adequate shape and stores it.
-
-        :param error: T x N shaped, where T is time and N is the number of neurons
-        :return: None
-        """
-        self.error = rtm(error)
-
-    def weight_update(self):
-        self.weights -= self.brain.eta * self._grad_weights
-        self.rweights -= self.brain.eta * self._grad_rweights
-
-    # noinspection PyUnresolvedReferences
-    def __bptt_reference(self, x, y):
-        """FROM www.wildml.com"""
-        T = len(y)
-        # Perform forward propagation
-        # Catch network output and hidden output
-        o, s = self.forward_propagation(x)
-        # We accumulate the _grad_weights in these variables
-        dLdU = np.zeros(self.U.shape)
-        dLdV = np.zeros(self.V.shape)
-        dLdW = np.zeros(self.W.shape)
-
-        # OMG THIS SIMPLY CALCULATES (output - target*)...
-        # Which by the way is the grad of Xent wrt to the outweights
-        # aka the output error
-        # *provided that target is not converted to 1-hot vectors
-        delta_o = o
-        delta_o[np.arange(len(y)), y] -= 1.
-
-        for t in np.arange(T)[::-1]:
-            # This is the sum of the output weights' _grad_weights
-            dLdV += np.outer(delta_o[t], s[t].T)
-            # backpropagating to the hiddens (Weights * Er) * tanh'(Z)
-            delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
-            # Backpropagation through time (for at most self.time_truncate steps)
-            for bptt_step in np.arange(max(0, t - self.bptt_truncate), t + 1)[::-1]:
-                dLdW += np.outer(delta_t, s[bptt_step - 1])
-                dLdU[:, x[bptt_step]] += delta_t
-                # Update delta for next step
-                delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step - 1] ** 2)
-        return [dLdU, dLdV, dLdW]
-
-    # noinspection PyUnresolvedReferences
-    def __forward_propagation(self, x):
-        """FROM www.wildml.com"""
-        # The total number of time steps
-        T = len(x)
-        # During forward propagation we save all hidden states in s because need them later.
-        # We add one additional element for the initial hidden, which we set to 0
-        s = np.zeros((T + 1, self.hidden_dim))
-        s[-1] = np.zeros(self.hidden_dim)
-        # The outsize at each time step. Again, we save them for later.
-        o = np.zeros((T, self.word_dim))
-        # For each time step...
-        for t in np.arange(T):
-            # Note that we are indxing U by x[t]. This is the same as multiplying U with a one-hot vector.
-            # aka self.U.dot(x)
-            s[t] = np.tanh(self.U[:, x[t]] + self.W.dot(s[t-1]))
-            o[t] = softmax(self.V.dot(s[t]))
-        return [o, s]
-
-
 class InputLayer(_FCLayer):
     def __init__(self, brain, inshape):
         _FCLayer.__init__(self, brain=brain, neurons=0, position=1, activation=Linear)
@@ -544,3 +444,207 @@ class InputLayer(_FCLayer):
         :return: numpy.ndarray
         """
         return stimuli
+
+
+class Experimental:
+
+    class LSTM(_FCLayer):
+        def __init__(self, brain, neurons, inputs, position, activation=Tanh):
+            _FCLayer.__init__(self, brain, neurons, position, activation)
+
+            print("Warning! CsxNet LSTM Layer is experimental!")
+
+            Z = neurons + inputs
+
+            # Problem (?):
+            # These are all input weights, we are not using the previous output!!
+            # Idk whether this is a problem tho
+
+            self.weights = white(Z, neurons * 4)
+            self.biases = white(1, neurons * 4)
+
+            self.gate_W_gradients = np.zeros_like(self.weights)
+            self.gate_b_gradients = np.zeros_like(self.biases)
+
+            self.states = []
+            self.tanh_states = []
+            self.outputs = []
+            self.caches = []
+
+            self.time = 0
+            self.fanin = inputs
+
+        def feedforward(self, stimuli: np.ndarray):
+            self.outputs = []
+            self.states = [np.zeros((self.brain.m, self.neurons))]
+            self.caches = []
+            self.time = stimuli.shape[1]
+            self.inputs = stimuli
+            # this step might be neccesary if the first datadim is not time, but the batch index
+            # stimuli = np.transpose(stimuli, (1, 0, 2))
+            sigmoid = Sigmoid()
+            tanh = Tanh()
+
+            n = self.neurons
+
+            def timestep(t):
+                # Sizes:        (bsize, embed)  (1, neurons)
+                X = np.column_stack((stimuli[t], self.outputs[-1]))
+                gates = X.dot(self.weights) + self.biases
+                gates[:, :n * 3] = sigmoid(gates[:, n * 3])
+                gates[:, 3 * n:] = tanh(gates[:, 3 * n:])
+                # This is basically a slicing step
+                gf, gi, cand, go = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
+                self.states.append(gf * self.states[-1] + gi * cand)
+                self.tanh_states.append(tanh(self.states[-1]))
+                self.outputs.append(go * tanh(self.states[-1]))
+                self.caches.append((gf, gi, cand, go))
+
+            for time in range(self.time):
+                timestep(time)
+
+        def predict(self, stimuli: np.ndarray):
+            pass
+
+        def weight_update(self):
+            # Update weights and biases
+            np.subtract(self.weights, self.gate_W_gradients * self.brain.eta,
+                        out=self.weights)
+            np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
+                        out=self.biases)
+
+        def backpropagation(self):
+            error_now = self.error
+            error_tomorrow = np.zeros_like(self.error)
+            gate_errors = []
+            dstate = np.zeros_like(self.states[0])
+
+            # No momentum (yet)
+            self.gate_W_gradients = np.zeros_like(self.weights)
+            self.gate_b_gradients = np.zeros_like(self.biases)
+
+            # backprop through time
+            for t in range(0, self.time, -1):
+                gf, gi, cand, go = self.caches[t]
+                error_now += error_tomorrow
+
+                dgo = sigmoid.derivative(self.tanh_states[t] * error_now)
+                dstate = tanh.derivative(self.states[t]) * (go * error_now + dstate)
+                dgf = sigmoid.derivative(gf) * (self.states[t - 1] * dstate)
+                dgi = sigmoid.derivative(gi) * (cand * dstate)
+                dcand = tanh.derivative(cand) * (gi * dstate)
+
+                gate_errors.append(np.column_stack((dgf, dgi, dcand, dgo)))
+                self.gate_W_gradients += self.inputs.T.dot(gate_errors)
+                self.gate_b_gradients += gate_errors
+                # Folding the (fanin, 4*neurons) part into (4, neurons)
+                # then summing the 4 matrices into 1 and getting (fanin, neurons)
+                error_tomorrow = np.transpose(
+                    gate_errors[-1].reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2)
+                ).sum(axis=0)
+                dstate = gf * dstate
+
+            prev_error = np.dot(gate_errors, self.weights.T)
+            return prev_error
+
+        def receive_error(self, error_vector: np.ndarray):
+            self.error = error_vector
+
+    class RLayer(FFLayer):
+        def __init__(self, brain, inputs, neurons, time_truncate, position, activation):
+            FFLayer.__init__(self, brain, inputs, neurons, position, activation)
+
+            self.time_truncate = time_truncate
+            self.rweights = np.random.randn(neurons, neurons)
+            self._grad_rweights = np.zeros_like(self.rweights)
+
+        def feedforward(self, questions):
+            self.inputs = rtm(questions)
+            time = questions.shape[0]
+            self.output = np.zeros((time + 1, self.outshape))
+            preact = np.dot(self.inputs, self.weights)
+            for t in range(time):
+                self.output[t] = self.activation(
+                    preact[t] + np.dot(self.output[t - 1], self.rweights)
+                )
+            return self.output
+
+        def backpropagation(self):
+            """Backpropagation through time (BPTT)"""
+            T = self.error.shape[0]
+            self._grad_weights = np.zeros(self.weights.shape)
+            self._grad_rweights = np.zeros(self.rweights.shape)
+            prev_error = np.zeros_like(self.inputs)
+            for t in range(0, T, step=-1):
+                t_delta = self.error[t]
+                for bptt in range(max(0, t - self.time_truncate), t + 1, step=-1):
+                    # TODO: check the order of parameters. Transposition possibly needed somewhere
+                    self._grad_rweights += np.outer(t_delta, self.output[bptt - 1])
+                    self._grad_weights += np.dot(self._grad_weights, self.inputs) + t_delta
+                    t_delta = self.rweights.dot(t_delta) * self.activation.derivative(self.output[bptt - 1])
+                prev_error[t] = t_delta
+            return prev_error
+
+        def receive_error(self, error):
+            """
+            Transforms the received error tensor to adequate shape and stores it.
+
+            :param error: T x N shaped, where T is time and N is the number of neurons
+            :return: None
+            """
+            self.error = rtm(error)
+
+        def weight_update(self):
+            self.weights -= self.brain.eta * self._grad_weights
+            self.rweights -= self.brain.eta * self._grad_rweights
+
+        # noinspection PyUnresolvedReferences
+        def __bptt_reference(self, x, y):
+            """FROM www.wildml.com"""
+            T = len(y)
+            # Perform forward propagation
+            # Catch network output and hidden output
+            o, s = self.forward_propagation(x)
+            # We accumulate the _grad_weights in these variables
+            dLdU = np.zeros(self.U.shape)
+            dLdV = np.zeros(self.V.shape)
+            dLdW = np.zeros(self.W.shape)
+
+            # OMG THIS SIMPLY CALCULATES (output - target*)...
+            # Which by the way is the grad of Xent wrt to the outweights
+            # aka the output error
+            # *provided that target is not converted to 1-hot vectors
+            delta_o = o
+            delta_o[np.arange(len(y)), y] -= 1.
+
+            for t in np.arange(T)[::-1]:
+                # This is the sum of the output weights' _grad_weights
+                dLdV += np.outer(delta_o[t], s[t].T)
+                # backpropagating to the hiddens (Weights * Er) * tanh'(Z)
+                delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
+                # Backpropagation through time (for at most self.time_truncate steps)
+                for bptt_step in np.arange(max(0, t - self.bptt_truncate), t + 1)[::-1]:
+                    dLdW += np.outer(delta_t, s[bptt_step - 1])
+                    dLdU[:, x[bptt_step]] += delta_t
+                    # Update delta for next step
+                    delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step - 1] ** 2)
+            return [dLdU, dLdV, dLdW]
+
+        # noinspection PyUnresolvedReferences
+        def __forward_propagation(self, x):
+            """FROM www.wildml.com"""
+            # The total number of time steps
+            T = len(x)
+            # During forward propagation we save all hidden states in s because need them later.
+            # We add one additional element for the initial hidden, which we set to 0
+            s = np.zeros((T + 1, self.hidden_dim))
+            s[-1] = np.zeros(self.hidden_dim)
+            # The outsize at each time step. Again, we save them for later.
+            o = np.zeros((T, self.word_dim))
+            # For each time step...
+            for t in np.arange(T):
+                # Note that we are indxing U by x[t]. This is the same as multiplying U with a one-hot vector.
+                # aka self.U.dot(x)
+                s[t] = np.tanh(self.U[:, x[t]] + self.W.dot(s[t - 1]))
+                o[t] = softmax(self.V.dot(s[t]))
+            return [o, s]
