@@ -43,3 +43,6 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
     return tuple(coords)
 
 
+def white(fanin, *dims):
+    """Returns a white noise tensor"""
+    return np.random.randn(fanin, *dims) / np.sqrt(fanin / 2.)

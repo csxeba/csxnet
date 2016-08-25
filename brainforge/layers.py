@@ -64,6 +64,10 @@ class _FCLayer(_LayerBase):
         self.output = np.zeros((neurons,))
         self.error = np.zeros((neurons,))
 
+    @abc.abstractmethod
+    def feedforward(self, stimuli: np.ndarray):
+        raise NotImplementedError
+
 
 class PoolLayer(_VecLayer):
     def __init__(self, brain, inshape, fshape, stride, position):
@@ -317,12 +321,11 @@ class FFLayer(_FCLayer):
 
         :return: numpy.ndarray
         """
-        self._old_grads = np.copy(self._grad_weights)
+        self._old_grads = np.copy(self._grad_weights)  # Trust me it's averaging...
         self._grad_weights = np.dot(self.inputs.T, self.error) / self.brain.m
 
         prev = self.brain.layers[self.position-1]
-        posh = [self.error.shape[0]] + list(prev.outshape)
-        prev_error = np.dot(self.error, self.weights.T).reshape(posh)
+        prev_error = np.dot(self.error, self.weights.T)
         prev_error *= prev.activation.derivative(prev.output)
 
         return prev_error
@@ -360,7 +363,7 @@ class FFLayer(_FCLayer):
         :param error: numpy.ndarray: 2D matrix of errors
         :return: None
         """
-        self.error = error
+        self.error = rtm(error)
 
     def shuffle(self):
         ws = self.weights.shape
