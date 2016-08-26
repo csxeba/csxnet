@@ -55,14 +55,32 @@ class NLL(_CostFnBase):
         return "NLL"
 
 
-def mse(outputs, targets, excitations, activation_derivative):
-    return activation_derivative(excitations) * np.subtract(outputs, targets)
+class _Cost:
+    @staticmethod
+    def mse():
+        return MSE()
+
+    @staticmethod
+    def xent():
+        return Xent()
+
+    @staticmethod
+    def nll():
+        return NLL()
+
+    def __getitem__(self, item: str):
+        if not isinstance(item, str):
+            raise TypeError("Please supply a string!")
+        item = item.lower()
+        d = {"mse": MSE,
+             "xent": Xent,
+             "nll": NLL}
+        if item not in d:
+            raise IndexError("Requested cost function is unsupported!")
+        return d[item]()
 
 
-def xent(outputs, targets, excitations=None, activation=None):
-    del excitations, activation
-    return np.subtract(outputs, targets)
-
-
-fromstring = {"xent": Xent,
-              "mse": MSE}
+mse = MSE()
+xent = Xent()
+nll = NLL()
+cost = _Cost()

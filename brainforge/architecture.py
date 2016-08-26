@@ -1,5 +1,5 @@
-from brainforge.activations import *
-from brainforge.cost import *
+from brainforge._activations import *
+from brainforge._costs import *
 
 from csxnet.model import Network
 from csxdata.frames import CData

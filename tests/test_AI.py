@@ -1,6 +1,6 @@
 from csxnet.model import Network
-from csxnet.brainforge.activations import *
-from csxnet.brainforge.cost import Xent
+from csxnet.brainforge._activations import *
+from csxnet.brainforge._costs import Xent
 
 from csxdata.frames import CData
 from csxdata.utilities.const import roots

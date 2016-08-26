@@ -46,7 +46,7 @@ class Linear(_ActivationFunctionBase):
         return np.ones_like(Z)
 
 
-class ReL(_ActivationFunctionBase):
+class ReLU(_ActivationFunctionBase):
 
     def __call__(self, Z):
         return np.maximum(0.0, Z)
@@ -68,3 +68,47 @@ class SoftMax(_ActivationFunctionBase):
     @staticmethod
     def derivative(A):
         raise NotImplementedError("Sorry for this...")
+
+
+class _Activation:
+
+    @staticmethod
+    def sigmoid():
+        return Sigmoid()
+
+    @staticmethod
+    def tanh():
+        return Tanh()
+
+    @staticmethod
+    def linear():
+        return Linear()
+
+    @staticmethod
+    def relu():
+        return ReLU()
+
+    @staticmethod
+    def softmax():
+        return SoftMax()
+
+    def __getitem__(self, item: str):
+        if not isinstance(item, str):
+            raise TypeError("Please supply a string!")
+        item = item.lower()
+        d = {"sigmoid": Sigmoid,
+             "tanh": Tanh,
+             "linear": Linear,
+             "relu": ReLU,
+             "softmax": SoftMax}
+        if item not in d:
+            raise IndexError("Requested activation function is unsupported!")
+        return d[item]()
+
+
+sigmoid = Sigmoid()
+tanh = Tanh()
+linear = Linear()
+relu = ReLU()
+softmax = SoftMax()
+activation = _Activation()

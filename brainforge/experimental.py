@@ -15,7 +15,7 @@ class Abomination:
 
     Description:
     Constructing a neural-level simulated brain and one of its layers
-    will be built from complete nerual networks instead of neurons...
+    will be built from a complete nerual network instead of neurons...
     """
 
     def __init__(self, data, eta, lmbd, cost):
