@@ -7,6 +7,7 @@ from ._activations import activation as actfns, sigmoid, tanh
 from ..util import l1term, l2term, outshape, calcsteps, white
 
 from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
+from csxdata.const import floatX
 
 
 class _LayerBase(abc.ABC):
@@ -293,13 +294,13 @@ class Experimental:
 
             print("Warning! CsxNet LSTM Layer is experimental!")
 
-            Z = neurons + inputs
+            self.Z = neurons + inputs
 
             # Problem (?):
             # These are all input weights, we are not using the previous output!!
             # Idk whether this is a problem tho
 
-            self.weights = white(Z, neurons * 4)
+            self.weights = white(self.Z, neurons * 4)
             self.biases = white(1, neurons * 4)
 
             self.gate_W_gradients = np.zeros_like(self.weights)
@@ -308,7 +309,8 @@ class Experimental:
             self.states = []
             self.tanh_states = []
             self.outputs = []
-            self.caches = []
+            self.output = None
+            self.cache = None
 
             self.time = 0
             self.fanin = inputs
@@ -331,19 +333,37 @@ class Experimental:
         def feedforward(self, stimuli: np.ndarray):
             self.inputs = stimuli
             self.time = stimuli.shape[1]
-
-            self.outputs = []
-            self.states = [np.zeros(self.brain.m, self.neurons)]
-            self.caches = []
+            self.cache = {"outputs": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
+                          "states": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
+                          "candidates": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
+                          "gate forget": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
+                          "gate input": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
+                          "gate output": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX)}
             # this step might be neccesary if the first datadim is not time, but the batch index
             # stimuli = np.transpose(stimuli, (1, 0, 2))
 
             for time in range(self.time):
-                output, state, tanh_state, cache = self._timestep(stimuli[time], self.states[time])
-                self.outputs[time] = output
-                self.states[time] = state
-                self.tanh_states[time] = tanh_state
-                self.caches[time] = cache
+                stimulus = stimuli[time]
+                state_yesterday = self.cache["states"][time[-1]]
+
+                X = np.column_stack((stimulus, self.outputs[-1]))
+
+                gates = X.dot(self.weights) + self.biases
+                gates[:, :self.neurons * 3] = sigmoid(gates[:, self.neurons * 3])
+                gates[:, 3 * self.neurons:] = tanh(gates[:, 3 * self.neurons:])
+
+                # This is basically a slicing step
+                gf, gi, cand, go = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
+                candidate = gf * state_yesterday + gi * cand
+                state = tanh(candidate)
+                output = go * state
+
+                self.cache["outputs"][time] += output
+                self.cache["candidates"][time] += candidate
+                self.cache["states"][time] += state
+                self.cache["gate forget"][time] += gf
+                self.cache["gate input"][time] += gf
+                self.cache["gate output"][time] += gf
 
             return np.concatenate(self.outputs)
 
@@ -369,11 +389,14 @@ class Experimental:
 
             # backprop through time
             for t in range(0, self.time, -1):
-                gf, gi, cand, go = self.caches[t]
+                gf = self.cache["gate forget"][t]
+                gi = self.cache["gate input"][t]
+                cand = self.cache["candidates"][t]
+                go = self.cache["gate output"][t]
                 error_now += error_tomorrow
 
-                dgo = sigmoid.derivative(self.tanh_states[t] * error_now)
-                dstate = tanh.derivative(self.states[t]) * (go * error_now + dstate)
+                dgo = sigmoid.derivative(self.cache["states"][t] * error_now)
+                dstate = tanh.derivative(cand) * (go * error_now + dstate)
                 dgf = sigmoid.derivative(gf) * (self.states[t - 1] * dstate)
                 dgi = sigmoid.derivative(gi) * (cand * dstate)
                 dcand = tanh.derivative(cand) * (gi * dstate)
