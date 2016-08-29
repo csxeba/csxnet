@@ -4,7 +4,7 @@ from csxnet.model import NeuralNetworkBase, Network
 # noinspection PyProtectedMember
 from csxnet.brainforge.layers import _LayerBase
 
-from csxdata.utilities.nputils import combination
+from csxdata.utilities.nputils import neuron
 
 
 class Abomination:
@@ -46,6 +46,21 @@ class AboLayer(_LayerBase):
         """this ain't so simple after all O.O"""
         pass
 
+    def receive_error(self, error_vector: np.ndarray) -> None:
+        pass
+
+    def shuffle(self) -> None:
+        pass
+
+    def backpropagation(self) -> np.ndarray:
+        pass
+
+    def weight_update(self) -> None:
+        pass
+
+    def predict(self, stimuli: np.ndarray) -> np.ndarray:
+        pass
+
 
 class Predictor:
     def __init__(self, brain):
@@ -57,7 +72,7 @@ class Predictor:
             raise RuntimeError("Please provide a Network instance for initialization")
 
         self.params = []
-        types = (InputLayer, ConvLayer, PoolLayer, FFLayer, DropOut)
+        types = (InputLayer, Experimental.ConvLayer, Experimental.PoolLayer, FFLayer, DropOut)
         for layer in brain.layers:
             tp = types.index(type(layer))
             if tp == 1:
@@ -76,7 +91,7 @@ class Predictor:
         for params in self.params:
             ln = len(params)
             assert ln == 4, "Not implemented yet!"
-            inputs = combination(inputs, *params)
+            inputs = neuron(inputs, *params)
         return np.argmax(inputs, axis=1)
 
     def save(self, path):

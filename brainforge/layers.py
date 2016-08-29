@@ -110,217 +110,6 @@ class _FCLayer(_LayerBase):
     def shuffle(self) -> None: pass
 
 
-class PoolLayer(_VecLayer):
-    def __init__(self, brain, inshape, fshape, stride, position):
-        _VecLayer.__init__(self, brain=brain,
-                           inshape=inshape, fshape=fshape,
-                           stride=stride, position=position,
-                           activation="linear")
-        self.outshape = (self.inshape[0], self.outshape[0], self.outshape[1])
-        self.backpass_filter = None
-        print("<PoolLayer> created with fanin {} and outshape {} @ position {}"
-              .format(self.inshape, self.outshape, position))
-
-    def feedforward(self, questions):
-        """
-        Implementation of a max pooling layer.
-
-        :param questions: numpy.ndarray, a batch of outsize from the previous layer
-        :return: numpy.ndarray, max pooled batch
-        """
-
-        m, f = questions.shape[:2]
-        result = np.zeros((m*f*len(self.coords),))
-        self.backpass_filter = np.zeros_like(questions)
-
-        index = 0
-        for i in range(m):  # ith lesson of m questions
-            for j in range(f):  # jth filter of f filters (-> depth of input)
-                sheet = questions[i, j]
-                for start0, end0, start1, end1 in self.coords:
-                    recfield = sheet[start0:end0, start1:end1]
-                    result[index] = maxpool(recfield)
-                    bpf = np.equal(recfield, result[index]).astype(int)
-                    # A poem about the necessity of the sum(bpf) term
-                    # If the e.g. 2x2 receptive field has multiple elements with the same value,
-                    # e.g. four 0.5s, then the error factor associated with the respective recfield
-                    # gets counted in 4 times, because the backpass filter has 4 1s in it.
-                    # I'll just scale the values back by the sum of 1s in the
-                    # backpass filter, thus averaging them over the maxes in the receptive field.
-                    self.backpass_filter[i, j, start0:end0, start1:end1] = bpf / np.sum(bpf)
-                    index += 1
-
-        self.output = result.reshape([m] + list(self.outshape))
-        return self.output
-
-    def predict(self, questions):
-        """
-        This method has no side-effects
-        :param questions:
-        :return:
-        """
-        m, f = questions.shape[:2]
-        result = np.zeros((m*f*len(self.coords),))
-        index = 0
-        for i in range(m):
-            for j in range(f):
-                sheet = questions[i, j]
-                for start0, end0, start1, end1 in self.coords:
-                    recfield = sheet[start0:end0, start1:end1]
-                    result[index] = maxpool(recfield)
-                    index += 1
-        return result.reshape([m] + list(self.outshape))
-
-    def backpropagation(self):
-        """
-        Calculates the error of the previous layer.
-        :return: numpy.ndarray, the errors of the previous layer
-        """
-        deltas = np.zeros([self.brain.m] + list(self.inshape))
-        for l in range(self.brain.m):
-            for z in range(self.inshape[0]):
-                vec = self.error[l, z]
-                for i, (start0, end0, start1, end1) in enumerate(self.coords):
-                    bpfilter = self.backpass_filter[l, z, start0:end0, start1:end1]
-                    deltas[l, z, start0:end0, start1:end1] += bpfilter * vec[i]
-
-        prev = self.brain.layers[self.position-1]
-        return deltas * prev.activation.derivative(prev.output)
-
-    def receive_error(self, error_matrix):
-        """
-        Folds a received error matrix.
-        :param error_matrix: backpropagated errors from the next layer
-        :return: None
-        """
-        self.error = error_matrix.reshape([self.brain.m] + [self.outshape[0]] +
-                                          [np.prod(self.outshape[1:])])
-
-    def weight_update(self): pass
-
-    def shuffle(self): pass
-
-
-class ConvLayer(_VecLayer):
-    def __init__(self, brain, fshape, inshape, num_filters, stride, position, activation):
-        _VecLayer.__init__(self, brain=brain,
-                           inshape=inshape, fshape=fshape,
-                           stride=stride, position=position,
-                           activation=activation)
-
-        chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
-        print(chain)
-        self.inputs = np.zeros(self.inshape)
-        self.outshape = num_filters, self.outshape[0], self.outshape[1]
-        self.filters = white(num_filters, np.prod(fshape))
-        self.grad_filters = np.zeros_like(self.filters)
-        print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
-              .format(self.inshape, self.outshape, position))
-
-    def feedforward(self, questions):
-        self.inputs = questions
-        exc = convolve(self.inputs, self.filters, mode="valid")
-        self.output = self.activation(exc)
-        return self.output
-
-    def old_feedforward(self, questions: np.ndarray):
-        """
-        Convolves the inputs with filters. Used in the learning phase
-
-        :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
-        :return: numpy.ndarray: outsize convolved with filters. Shape should be (lessons, filters, cx, cy)
-        """
-        self.inputs = questions
-
-        # TODO: rethink this! Not working when channel > 1.
-        recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
-                              for start0, end0, start1, end1 in self.coords]
-                             for qstn in range(questions.shape[0])])
-
-        osh = [self.brain.m] + list(self.outshape)
-        exc = np.matmul(recfields, self.filters.T)
-        exc = np.transpose(exc, (0, 2, 1)).reshape(osh)
-        self.output = self.activation(exc)
-        return self.output
-
-    def predict(self, questions: np.ndarray):
-        """
-        Convolves the inputs with filters.
-
-        Used in prediction and testing. This method has no side-effects and could be used
-        in multiprocessing. (Hopes die last)
-
-        :param questions: 4D tensor of shape (lessons, channels, x, y)
-        :return: 4D tensor of shape (lessons, filters, cx, cy)
-        """
-        recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
-                              for start0, end0, start1, end1 in self.coords]
-                             for qstn in range(questions.shape[0])])
-        osh = [questions.shape[0]] + list(self.outshape)
-        return self.activation(np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1))).reshape(*osh)
-
-    def backpropagation(self):
-        """
-        Calculates the error of the previous layer.
-
-        :return: numpy.ndarray
-        """
-        if self.position == 1:
-            print("Warning! Backpropagating into the input layer. Bad learning method design?")
-        deltas = np.zeros_like(self.inputs)
-
-        for n in range(self.error.shape[0]):  # -> a batch element in the input 4D-tensor
-            for fnum in range(self.filters.shape[0]):  # fnum -> a filter
-                errvec = np.ravel(self.error[n, fnum, ...])  # an error sheet flattened, corresponding to a filter
-                for index, (start0, end0, start1, end1) in enumerate(self.coords):
-                    diff = errvec[index] * self.filters[fnum].reshape(self.fshape)
-                    np.add(deltas[..., start0:end0, start1:end1], diff,
-                           out=deltas[..., start0:end0, start1:end1])
-        prev = self.brain.layers[self.position-1]
-        return deltas * prev.activation.derivative(prev.output)
-
-    def receive_error(self, error_matrix: np.ndarray):
-        """
-        Fold the received error matrix.
-
-        :param error_matrix: numpy.ndarray: backpropagated errors
-        :return: None
-        """
-        self.error = error_matrix.reshape([self.brain.m] + list(self.outshape))
-
-    def weight_update(self):
-        """
-        Updates convolutional filter weights with the calculated _grad_weights.
-
-        :return: None
-        """
-        f, c = self.error.shape[1], self.inputs.shape[1]
-        delta = np.zeros([f] + list(self.fshape))
-        for l in range(self.brain.m):  # lth of m lessons
-            for i in range(f):  # ith filter of f filters
-                for j in range(c):  # jth input channel of c channels
-                    # Every channel in the input gets convolved with the error matrix of the filter
-                    # these matrices are then summed elementwise.
-                    cvm = convolve(self.inputs[l][j], self.error[l][i], mode="same")
-                    # cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
-                    # eq = np.equal(cvm, cvm_old)
-                    delta[i, j, ...] += cvm  # Averaging over lessons in the batch
-
-        # L2 regularization aka weight decay
-        l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
-        # Update regularized weights with averaged errors
-        np.add(self.filters * l2, (self.brain.eta / self.brain.m) * delta.reshape(self.filters.shape),
-               out=self.filters)
-
-    def _getrfields(self, slices: np.ndarray):
-        return np.array([[np.ravel(stim[:, start0:end0, start1:end1])
-                          for start0, end0, start1, end1 in self.coords]
-                         for stim in slices])
-
-    def shuffle(self):
-        self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))
-
-
 class FFLayer(_FCLayer):
     def __init__(self, brain, inputs, neurons, position, activation):
         _FCLayer.__init__(self, brain=brain,
@@ -549,8 +338,6 @@ class Experimental:
             # this step might be neccesary if the first datadim is not time, but the batch index
             # stimuli = np.transpose(stimuli, (1, 0, 2))
 
-            n = self.neurons
-
             for time in range(self.time):
                 output, state, tanh_state, cache = self._timestep(stimuli[time], self.states[time])
                 self.outputs[time] = output
@@ -575,7 +362,6 @@ class Experimental:
             error_tomorrow = np.zeros_like(self.error)
             gate_errors = []
             dstate = np.zeros_like(self.states[0])
-            sigmoid, tanh = Sigmoid(), Tanh()
 
             # No momentum (yet)
             self.gate_W_gradients = np.zeros_like(self.weights)
@@ -709,3 +495,214 @@ class Experimental:
                 s[t] = np.tanh(self.U[:, x[t]] + self.W.dot(s[t - 1]))
                 o[t] = softmax(self.V.dot(s[t]))
             return [o, s]
+
+    class PoolLayer(_VecLayer):
+        def __init__(self, brain, inshape, fshape, stride, position):
+            _VecLayer.__init__(self, brain=brain,
+                               inshape=inshape, fshape=fshape,
+                               stride=stride, position=position,
+                               activation="linear")
+            self.outshape = (self.inshape[0], self.outshape[0], self.outshape[1])
+            self.backpass_filter = None
+            print("<PoolLayer> created with fanin {} and outshape {} @ position {}"
+                  .format(self.inshape, self.outshape, position))
+
+        def feedforward(self, questions):
+            """
+            Implementation of a max pooling layer.
+
+            :param questions: numpy.ndarray, a batch of outsize from the previous layer
+            :return: numpy.ndarray, max pooled batch
+            """
+
+            m, f = questions.shape[:2]
+            result = np.zeros((m * f * len(self.coords),))
+            self.backpass_filter = np.zeros_like(questions)
+
+            index = 0
+            for i in range(m):  # ith lesson of m questions
+                for j in range(f):  # jth filter of f filters (-> depth of input)
+                    sheet = questions[i, j]
+                    for start0, end0, start1, end1 in self.coords:
+                        recfield = sheet[start0:end0, start1:end1]
+                        result[index] = maxpool(recfield)
+                        bpf = np.equal(recfield, result[index]).astype(int)
+                        # A poem about the necessity of the sum(bpf) term
+                        # If the e.g. 2x2 receptive field has multiple elements with the same value,
+                        # e.g. four 0.5s, then the error factor associated with the respective recfield
+                        # gets counted in 4 times, because the backpass filter has 4 1s in it.
+                        # I'll just scale the values back by the sum of 1s in the
+                        # backpass filter, thus averaging them over the maxes in the receptive field.
+                        self.backpass_filter[i, j, start0:end0, start1:end1] = bpf / np.sum(bpf)
+                        index += 1
+
+            self.output = result.reshape([m] + list(self.outshape))
+            return self.output
+
+        def predict(self, questions):
+            """
+            This method has no side-effects
+            :param questions:
+            :return:
+            """
+            m, f = questions.shape[:2]
+            result = np.zeros((m * f * len(self.coords),))
+            index = 0
+            for i in range(m):
+                for j in range(f):
+                    sheet = questions[i, j]
+                    for start0, end0, start1, end1 in self.coords:
+                        recfield = sheet[start0:end0, start1:end1]
+                        result[index] = maxpool(recfield)
+                        index += 1
+            return result.reshape([m] + list(self.outshape))
+
+        def backpropagation(self):
+            """
+            Calculates the error of the previous layer.
+            :return: numpy.ndarray, the errors of the previous layer
+            """
+            deltas = np.zeros([self.brain.m] + list(self.inshape))
+            for l in range(self.brain.m):
+                for z in range(self.inshape[0]):
+                    vec = self.error[l, z]
+                    for i, (start0, end0, start1, end1) in enumerate(self.coords):
+                        bpfilter = self.backpass_filter[l, z, start0:end0, start1:end1]
+                        deltas[l, z, start0:end0, start1:end1] += bpfilter * vec[i]
+
+            prev = self.brain.layers[self.position - 1]
+            return deltas * prev.activation.derivative(prev.output)
+
+        def receive_error(self, error_matrix):
+            """
+            Folds a received error matrix.
+            :param error_matrix: backpropagated errors from the next layer
+            :return: None
+            """
+            self.error = error_matrix.reshape([self.brain.m] + [self.outshape[0]] +
+                                              [np.prod(self.outshape[1:])])
+
+        def weight_update(self):
+            pass
+
+        def shuffle(self):
+            pass
+
+    class ConvLayer(_VecLayer):
+        def __init__(self, brain, fshape, inshape, num_filters, stride, position, activation):
+            _VecLayer.__init__(self, brain=brain,
+                               inshape=inshape, fshape=fshape,
+                               stride=stride, position=position,
+                               activation=activation)
+
+            chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
+            print(chain)
+            self.inputs = np.zeros(self.inshape)
+            self.outshape = num_filters, self.outshape[0], self.outshape[1]
+            self.filters = white(num_filters, np.prod(fshape))
+            self.grad_filters = np.zeros_like(self.filters)
+            print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
+                  .format(self.inshape, self.outshape, position))
+
+        def feedforward(self, questions):
+            self.inputs = questions
+            exc = convolve(self.inputs, self.filters, mode="valid")
+            self.output = self.activation(exc)
+            return self.output
+
+        def old_feedforward(self, questions: np.ndarray):
+            """
+            Convolves the inputs with filters. Used in the learning phase
+
+            :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
+            :return: numpy.ndarray: outsize convolved with filters. Shape should be (lessons, filters, cx, cy)
+            """
+            self.inputs = questions
+
+            # TODO: rethink this! Not working when channel > 1.
+            recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
+                                   for start0, end0, start1, end1 in self.coords]
+                                  for qstn in range(questions.shape[0])])
+
+            osh = [self.brain.m] + list(self.outshape)
+            exc = np.matmul(recfields, self.filters.T)
+            exc = np.transpose(exc, (0, 2, 1)).reshape(osh)
+            self.output = self.activation(exc)
+            return self.output
+
+        def predict(self, questions: np.ndarray):
+            """
+            Convolves the inputs with filters.
+
+            Used in prediction and testing. This method has no side-effects and could be used
+            in multiprocessing. (Hopes die last)
+
+            :param questions: 4D tensor of shape (lessons, channels, x, y)
+            :return: 4D tensor of shape (lessons, filters, cx, cy)
+            """
+            recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
+                                   for start0, end0, start1, end1 in self.coords]
+                                  for qstn in range(questions.shape[0])])
+            osh = [questions.shape[0]] + list(self.outshape)
+            return self.activation(np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1))).reshape(*osh)
+
+        def backpropagation(self):
+            """
+            Calculates the error of the previous layer.
+
+            :return: numpy.ndarray
+            """
+            if self.position == 1:
+                print("Warning! Backpropagating into the input layer. Bad learning method design?")
+            deltas = np.zeros_like(self.inputs)
+
+            for n in range(self.error.shape[0]):  # -> a batch element in the input 4D-tensor
+                for fnum in range(self.filters.shape[0]):  # fnum -> a filter
+                    errvec = np.ravel(self.error[n, fnum, ...])  # an error sheet flattened, corresponding to a filter
+                    for index, (start0, end0, start1, end1) in enumerate(self.coords):
+                        diff = errvec[index] * self.filters[fnum].reshape(self.fshape)
+                        np.add(deltas[..., start0:end0, start1:end1], diff,
+                               out=deltas[..., start0:end0, start1:end1])
+            prev = self.brain.layers[self.position - 1]
+            return deltas * prev.activation.derivative(prev.output)
+
+        def receive_error(self, error_matrix: np.ndarray):
+            """
+            Fold the received error matrix.
+
+            :param error_matrix: numpy.ndarray: backpropagated errors
+            :return: None
+            """
+            self.error = error_matrix.reshape([self.brain.m] + list(self.outshape))
+
+        def weight_update(self):
+            """
+            Updates convolutional filter weights with the calculated _grad_weights.
+
+            :return: None
+            """
+            f, c = self.error.shape[1], self.inputs.shape[1]
+            delta = np.zeros([f] + list(self.fshape))
+            for l in range(self.brain.m):  # lth of m lessons
+                for i in range(f):  # ith filter of f filters
+                    for j in range(c):  # jth input channel of c channels
+                        # Every channel in the input gets convolved with the error matrix of the filter
+                        # these matrices are then summed elementwise.
+                        cvm = convolve(self.inputs[l][j], self.error[l][i], mode="same")
+                        # cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
+                        # eq = np.equal(cvm, cvm_old)
+                        delta[i, j, ...] += cvm  # Averaging over lessons in the batch
+
+            # L2 regularization aka weight decay
+            l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
+            # Update regularized weights with averaged errors
+            np.add(self.filters * l2, (self.brain.eta / self.brain.m) * delta.reshape(self.filters.shape),
+                   out=self.filters)
+
+        def _getrfields(self, slices: np.ndarray):
+            return np.array([[np.ravel(stim[:, start0:end0, start1:end1])
+                              for start0, end0, start1, end1 in self.coords]
+                             for stim in slices])
+
+        def shuffle(self):
+            self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))

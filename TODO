@@ -1,0 +1,8 @@
+TODO: be more Keras-like, rename .learn to .fit and reimplement it so it can handle a nb_ebochs parameter
+TODO: implement the Keras method fit_generator to be able to work on massive datasets
+TODO: figure out the CNN backpropagation
+TODO: figure out the RNN/LSTM/GRU backpropagation and implement the layers
+TODO: figure out the Highway Layer backpropagation and implement the layer
+TODO: write a predictor wrapper, which can extract weights from a keras model and use them to transform data
+
+TODO: write tests!!!!!!!!!!!!!

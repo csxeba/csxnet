@@ -21,8 +21,8 @@ import abc
 
 import numpy as np
 
-from .brainforge import activation as actfns
-from .brainforge import cost as costfns
+from .brainforge import activations as actfns
+from .brainforge import costs as costfns
 
 from csxdata.utilities.nputils import ravel_to_matrix as rtm
 
@@ -84,17 +84,17 @@ class Network(NeuralNetworkBase):
     # ---- Methods for architecture building ----
 
     def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=actfns.tanh()):
-        from .brainforge.layers import ConvLayer
+        from .brainforge.layers import Experimental
         fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
-        self.layers.append(ConvLayer(*args))
+        self.layers.append(Experimental.ConvLayer(*args))
         self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation())[:4]))
         # brain, fshape, fanin, num_filters, stride, position, activation="sigmoid"
 
     def add_pool(self, pool=2):
-        from .brainforge.layers import PoolLayer
+        from .brainforge.layers import Experimental
         args = (self, self.layers[-1].outshape, (pool, pool), pool, len(self.layers))
-        self.layers.append(PoolLayer(*args))
+        self.layers.append(Experimental.PoolLayer(*args))
         self.architecture.append("{} Pool".format(pool))
         # brain, fanin, fshape, stride, position
 
