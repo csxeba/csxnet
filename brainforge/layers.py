@@ -15,7 +15,7 @@ class _LayerBase(abc.ABC):
     def __init__(self, brain, position, activation):
         self.brain = brain
         self.position = position
-        if isinstance(activation, "str"):
+        if isinstance(activation, str):
             self.activation = actfns[activation]
         else:
             self.activation = activation
@@ -118,8 +118,8 @@ class FFLayer(_FCLayer):
                           activation=activation)
 
         self.weights = white(inputs, neurons)
-        self._grad_weights = np.zeros_like(self.weights)
-        self._old_grads = np.zeros_like(self.weights)
+        self.gradients = np.zeros_like(self.weights)
+        self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
         self.inputs = None
         self.N = 0  # current batch size
@@ -156,14 +156,10 @@ class FFLayer(_FCLayer):
 
         :return: numpy.ndarray
         """
-        self._old_grads = np.copy(self._grad_weights)  # Trust me it's averaging...
-        self._grad_weights = np.dot(self.inputs.T, self.error) / self.brain.m
-
-        prev = self.brain.layers[self.position-1]
-        prev_error = np.dot(self.error, self.weights.T)
-        prev_error *= prev.activation.derivative(prev.output)
-
-        return prev_error
+        # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
+        self.gradients = np.dot(self.inputs.T, self.error) / self.brain.m
+        # (dC / dW) = error * (dZ / dA_), where A_ is the previous output
+        return np.dot(self.error, self.weights.T)
 
     def weight_update(self):
         """
@@ -173,18 +169,22 @@ class FFLayer(_FCLayer):
         :return: None
         """
         # Apply L2 regularization, aka weight decay
-        l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-        l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
         if self.brain.lmbd2:
+            l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
             self.weights *= l2
         if self.brain.lmbd1:
+            l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
             self.weights -= l1 * np.sign(self.weights)
 
         # Update weights and biases
-        np.subtract(self.weights,
-                    (self._grad_weights + self.brain.mu * self._old_grads) *
-                    self.brain.eta,
-                    out=self.weights)
+        if self.brain.mu:
+            self.velocity += self.gradients
+            np.subtract(self.weights, self.brain.mu * self.velocity * self.brain.eta,
+                        out=self.weights)
+        else:
+            np.subtract(self.weights, self.gradients * self.brain.eta,
+                        out=self.weights)
+
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                     out=self.biases)
 
@@ -198,7 +198,7 @@ class FFLayer(_FCLayer):
         :param error: numpy.ndarray: 2D matrix of errors
         :return: None
         """
-        self.error = rtm(error)
+        self.error = rtm(error) * self.activation.derivative(self.output)
 
     def shuffle(self):
         ws = self.weights.shape
@@ -224,7 +224,7 @@ class DropOut(FFLayer):
 
     def backpropagation(self):
 
-        self._old_grads = np.copy(self._grad_weights)
+        self.velocity += self._grad_weights
         self._grad_weights = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
 
         prev = self.brain.layers[self.position-1]
@@ -244,7 +244,7 @@ class DropOut(FFLayer):
             self.weights -= l1 * np.sign(self.weights)
 
         np.subtract(self.weights,
-                    (self._grad_weights + self.brain.mu * self._old_grads) *
+                    (self._grad_weights + self.brain.mu * self.velocity) *
                     self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
@@ -349,23 +349,31 @@ class Experimental:
                 X = np.column_stack((stimulus, self.outputs[-1]))
 
                 gates = X.dot(self.weights) + self.biases
+                # gates: forget, input, output
                 gates[:, :self.neurons * 3] = sigmoid(gates[:, self.neurons * 3])
+                # state candidate
                 gates[:, 3 * self.neurons:] = tanh(gates[:, 3 * self.neurons:])
 
                 # This is basically a slicing step
-                gf, gi, cand, go = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
-                candidate = gf * state_yesterday + gi * cand
-                state = tanh(candidate)
-                output = go * state
+                gf, gi, go, candidate = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
+                state = gf * state_yesterday + gi * candidate
+                tanh_state = tanh(state)
+                output = go * tanh_state
 
                 self.cache["outputs"][time] += output
-                self.cache["candidates"][time] += candidate
                 self.cache["states"][time] += state
+                self.cache["tanh_states"][time] += tanh_state
                 self.cache["gate forget"][time] += gf
                 self.cache["gate input"][time] += gf
                 self.cache["gate output"][time] += gf
 
-            return np.concatenate(self.outputs)
+            # I'm not sure about the output,
+            # because either the whole output sequence can be returned -> this keeps the input dims
+            # or just the last output -> this leads to dim reduction
+            if 1:
+                self.output = self.cache["outputs"][-1]
+            else:
+                self.output = self.cache["outputs"]
 
         def predict(self, stimuli: np.ndarray):
             pass
@@ -378,7 +386,7 @@ class Experimental:
                         out=self.biases)
 
         def backpropagation(self):
-            error_now = self.error[-1]
+            error_now = self.error
             error_tomorrow = np.zeros_like(self.error)
             gate_errors = []
             dstate = np.zeros_like(self.states[0])
@@ -395,7 +403,7 @@ class Experimental:
                 go = self.cache["gate output"][t]
                 error_now += error_tomorrow
 
-                dgo = sigmoid.derivative(self.cache["states"][t] * error_now)
+                dgo = sigmoid.derivative(self.cache["tanh_states"][t] * error_now)
                 dstate = tanh.derivative(cand) * (go * error_now + dstate)
                 dgf = sigmoid.derivative(gf) * (self.states[t - 1] * dstate)
                 dgi = sigmoid.derivative(gi) * (cand * dstate)
@@ -415,7 +423,8 @@ class Experimental:
             return prev_error
 
         def receive_error(self, error_vector: np.ndarray):
-            self.error = rtm(error_vector)
+            self.error = error_vector.reshape(self.brain.m, *self.outshape) * \
+                         self.activation.derivative(self.outputs)
 
         def shuffle(self):
             pass
@@ -475,7 +484,7 @@ class Experimental:
             # Perform forward propagation
             # Catch network output and hidden output
             o, s = self.forward_propagation(x)
-            # We accumulate the _grad_weights in these variables
+            # We accumulate the gradients in these variables
             dLdU = np.zeros(self.U.shape)
             dLdV = np.zeros(self.V.shape)
             dLdW = np.zeros(self.W.shape)
@@ -488,7 +497,7 @@ class Experimental:
             delta_o[np.arange(len(y)), y] -= 1.
 
             for t in np.arange(T)[::-1]:
-                # This is the sum of the output weights' _grad_weights
+                # This is the sum of the output weights' gradients
                 dLdV += np.outer(delta_o[t], s[t].T)
                 # backpropagating to the hiddens (Weights * Er) * tanh'(Z)
                 delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
@@ -598,7 +607,7 @@ class Experimental:
 
         def receive_error(self, error_matrix):
             """
-            Folds a received error matrix.
+            Folds the received error matrix.
             :param error_matrix: backpropagated errors from the next layer
             :return: None
             """
@@ -623,7 +632,8 @@ class Experimental:
             self.inputs = np.zeros(self.inshape)
             self.outshape = num_filters, self.outshape[0], self.outshape[1]
             self.filters = white(num_filters, np.prod(fshape))
-            self.grad_filters = np.zeros_like(self.filters)
+            self.gradients = np.zeros_like(self.filters)
+            self.velocity = np.zeros_like(self.filters)
             print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
                   .format(self.inshape, self.outshape, position))
 
@@ -670,6 +680,10 @@ class Experimental:
             return self.activation(np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1))).reshape(*osh)
 
         def backpropagation(self):
+            self.gradients = convolve(np.rot90(self.error, k=2), self.inputs)
+            return convolve(self.error, np.rot90(self.filters, k=2))
+
+        def old_backpropagation(self):
             """
             Calculates the error of the previous layer.
 
@@ -686,8 +700,7 @@ class Experimental:
                         diff = errvec[index] * self.filters[fnum].reshape(self.fshape)
                         np.add(deltas[..., start0:end0, start1:end1], diff,
                                out=deltas[..., start0:end0, start1:end1])
-            prev = self.brain.layers[self.position - 1]
-            return deltas * prev.activation.derivative(prev.output)
+            return deltas
 
         def receive_error(self, error_matrix: np.ndarray):
             """
@@ -699,8 +712,20 @@ class Experimental:
             self.error = error_matrix.reshape([self.brain.m] + list(self.outshape))
 
         def weight_update(self):
+            if self.brain.lmbd2:
+                l2 = l2term(self.brain.eta, self.brain.lmbd1, self.brain.N)
+                self.filters *= l2
+            if self.brain.lmbd1:
+                l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
+                self.filters -= l1 * np.sign(self.filters)
+
+            np.subtract(self.filters, self.velocity * self.brain.mu + self.gradients, out=self.filters)
+            if self.brain.mu:
+                self.velocity += self.gradients
+
+        def old_weight_update(self):
             """
-            Updates convolutional filter weights with the calculated _grad_weights.
+            Updates convolutional filter weights with the calculated gradients.
 
             :return: None
             """

@@ -18,6 +18,7 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
 
 import abc
+import sys
 
 import numpy as np
 
@@ -66,8 +67,7 @@ class Network(NeuralNetworkBase):
 
         NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu)
 
-        self.error = float()
-        self.m = int()  # Batch size goes here
+        self.m = 0  # Batch size goes here
 
         if isinstance(cost, str):
             self.cost = costfns[cost]
@@ -83,12 +83,12 @@ class Network(NeuralNetworkBase):
 
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=actfns.tanh()):
+    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=actfns.tanh):
         from .brainforge.layers import Experimental
         fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
         self.layers.append(Experimental.ConvLayer(*args))
-        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation())[:4]))
+        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation)[:4]))
         # brain, fshape, fanin, num_filters, stride, position, activation="sigmoid"
 
     def add_pool(self, pool=2):
@@ -98,22 +98,22 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Pool".format(pool))
         # brain, fanin, fshape, stride, position
 
-    def add_fc(self, neurons, activation=actfns.tanh()):
+    def add_fc(self, neurons, activation=actfns.tanh):
         from .brainforge.layers import FFLayer
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
         self.layers.append(FFLayer(*args))
-        self.architecture.append("{} FC: {}".format(neurons, str(activation())[:4]))
+        self.architecture.append("{} FC: {}".format(neurons, str(activation)[:4]))
         # brain, inputs, neurons, position, activation
 
-    def add_drop(self, neurons, dropchance=0.25, activation=actfns.tanh()):
+    def add_drop(self, neurons, dropchance=0.25, activation=actfns.tanh):
         from .brainforge.layers import DropOut
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
-        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation())[:4]))
+        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, time_truncate=5, activation=actfns.tanh()):
+    def add_rec(self, neurons, time_truncate=5, activation=actfns.tanh):
         from .brainforge.layers import Experimental
         inpts = np.prod(self.layers[-1].outshape)
         args = self, inpts, neurons, time_truncate, len(self.layers), activation
@@ -121,7 +121,7 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} RecL(time={}): {}".format(neurons, time_truncate, activation[:4]))
         # brain, inputs, neurons, time_truncate, position, activation
 
-    def finalize_architecture(self, activation=actfns.sigmoid()):
+    def finalize_architecture(self, activation=actfns.sigmoid):
         from .brainforge.layers import FFLayer
         fanin = np.prod(self.fanin)
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
@@ -129,21 +129,25 @@ class Network(NeuralNetworkBase):
         self.predictor = FFLayer(*pargs)
         self.encoder = FFLayer(*eargs)
         self.layers.append(self.predictor)
-        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation())[:4]))
+        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation)[:4]))
         self.finalized = True
 
     # ---- Methods for model fitting ----
 
     def learn(self, batch_size):
+        costs = []
         if not self.finalized:
             raise RuntimeError("Architecture not finalized!")
         if self.layers[-1] is not self.predictor:
             self._insert_predictor()
         for no, batch in enumerate(self.data.batchgen(batch_size)):
             self.m = batch[0].shape[0]
-            self._fit(batch)
-
+            costs.append(self._fit(batch))
+            sys.stdout.write("\rCost @ {}%: {}".format(int((no+1 * batch_size) / self.N)*100,
+                                                       costs[-1]))
         self.age += 1
+        print()
+        return np.sum(costs) / no
 
     def autoencode(self, batch_size):
         """
@@ -179,7 +183,6 @@ class Network(NeuralNetworkBase):
                     target,
                     self.encoder.excitation,
                     self.encoder.activation)
-                self.error = sum(np.average(self.encoder.error, axis=0))
                 self.encoder.weight_update()
 
         def autoencode_layers():
@@ -196,7 +199,6 @@ class Network(NeuralNetworkBase):
                                                               self.encoder.excitation,
                                                               self.encoder.activation)
                     autoencoder[-2].error = self.encoder.backpropagation()
-                    self.error = sum(np.average(self.encoder.error, axis=0))
                     for lyr in autoencoder[1:]:
                         lyr.weight_update()
 
@@ -229,7 +231,8 @@ class Network(NeuralNetworkBase):
             questions = layer.feedforward(questions)
         # Calculate the cost derivative
         last = self.layers[-1]
-        last.error = self.cost.derivative(last.output, targets, last.activation)
+        last.receive_error(self.cost.derivative(last.output, targets) *
+                           last.activation.derivative(last.output))
         # Backpropagate the errors
         for layer in self.layers[-1:1:-1]:
             prev_layer = self.layers[layer.position - 1]
@@ -237,13 +240,19 @@ class Network(NeuralNetworkBase):
         # Update weights
         for layer in self.layers[1:]:
             layer.weight_update()
-
-        # Calculate the sum of errors in the last layer, averaged over the batch
-        self.error = sum(np.average(self.layers[-1].error, axis=0))
+        return self.cost(last.output, targets)
 
     # ---- Methods for forward propagation ----
 
     def predict(self, questions):
+        if self.data.type == "classification":
+            return self.predict_class(questions)
+        elif self.data.type == "regression":
+            return self.predict_raw(questions)
+        else:
+            raise RuntimeError("This branch shouldn't run :)")
+
+    def predict_class(self, questions):
         """
         Coordinates prediction (feedforwarding outside the learning phase)
 
@@ -253,35 +262,29 @@ class Network(NeuralNetworkBase):
         :param questions: numpy.ndarray representing a batch of inputs
         :return: numpy.ndarray: 1D array of predictions
         """
+        return np.argmax(self.predict_raw(questions), axis=1)
+
+    def predict_raw(self, questions):
         for layer in self.layers:
             questions = layer.predict(questions)
-        if self.data.type == "classification":
-            return np.argmax(questions, axis=1)
-        else:
-            return questions
+        return questions
 
-    def evaluate(self, on="testing"):
+    def evaluate(self, on="testing", accuracy=True):
         """
-        Calculates the network's prediction accuracy.
+        Calculates the network's prediction accuracy
 
         :param on: cross-validation is implemented, dataset can be chosen here
+        :param accuracy: if True, the class prediction accuracy is calculated.
         :return: rate of right answers
         """
 
-        def revaluate(preds):
-            ideps = {"d": d.indeps, "l": d.lindeps, "t": d.tindeps}[on[0]][:m]
-            return np.mean(np.sqrt((d.upscale(preds) - d.upscale(ideps)) ** 2))
-
-        def cevaluate(preds):
-            ideps = self.data.dummycode(on)
-            return np.mean(np.equal(ideps, preds))
-
-        m = self.data.n_testing
-        d = self.data
-        evalfn = revaluate if d.type == "regression" else cevaluate
-        questions = {"d": d.data[:m], "l": d.learning[:m], "t": d.testing}[on[0]]
-        result = evalfn(self.predict(questions))
-        return result
+        questions, targets = self.data.table(on, shuff=True, m=self.data.n_testing)
+        predictions = self.predict_raw(questions)
+        cost = self.cost(predictions, targets)
+        if accuracy:
+            acc = np.average(np.equal(np.argmax(predictions, axis=1), np.argmax(targets)))
+            return cost, acc
+        return cost
 
     # ---- Private helper methods ----
 
@@ -328,7 +331,7 @@ class Network(NeuralNetworkBase):
     def dream(self, matrix):
         """Reverse-feedforward"""
         assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
-        assert all([(isinstance(layer.activation, actfns.sigmoid())) or (layer.activation is actfns.sigmoid())
+        assert all([(isinstance(layer.activation, actfns.sigmoid)) or (layer.activation is actfns.sigmoid)
                     for layer in self.layers[1:]]), "Only Sigmoid is supported!"
 
         from csxdata.utilities.nputils import logit
@@ -351,7 +354,7 @@ class FeedForwardNet(Network):
     """
 
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
-                 cost=costfns.xent(), activation=actfns.tanh()):
+                 cost=costfns.xent, activation=actfns.tanh):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
         if isinstance(hiddens, int):
@@ -361,4 +364,4 @@ class FeedForwardNet(Network):
 
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=activation)
-        self.finalize_architecture(activation=actfns.sigmoid())
+        self.finalize_architecture(activation=actfns.sigmoid)
