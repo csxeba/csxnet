@@ -224,8 +224,8 @@ class DropOut(FFLayer):
 
     def backpropagation(self):
 
-        self.velocity += self._grad_weights
-        self._grad_weights = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
+        self.velocity += self.gradients
+        self.gradients = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
 
         prev = self.brain.layers[self.position-1]
         posh = [self.error.shape[0]] + list(prev.outshape)
@@ -244,7 +244,7 @@ class DropOut(FFLayer):
             self.weights -= l1 * np.sign(self.weights)
 
         np.subtract(self.weights,
-                    (self._grad_weights + self.brain.mu * self.velocity) *
+                    (self.gradients + self.brain.mu * self.velocity) *
                     self.brain.eta,
                     out=self.weights)
         np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
@@ -296,39 +296,17 @@ class Experimental:
 
             self.Z = neurons + inputs
 
-            # Problem (?):
-            # These are all input weights, we are not using the previous output!!
-            # Idk whether this is a problem tho
-
             self.weights = white(self.Z, neurons * 4)
             self.biases = white(1, neurons * 4)
 
             self.gate_W_gradients = np.zeros_like(self.weights)
             self.gate_b_gradients = np.zeros_like(self.biases)
 
-            self.states = []
-            self.tanh_states = []
-            self.outputs = []
             self.output = None
             self.cache = None
 
             self.time = 0
             self.fanin = inputs
-
-        def _timestep(self, stimulus, state_yesterday):
-            # Sizes:        (bsize, embed)  (1, neurons)
-            X = np.column_stack((stimulus, self.outputs[-1]))
-            gates = X.dot(self.weights) + self.biases
-            gates[:, :self.neurons * 3] = sigmoid(gates[:, self.neurons * 3])
-            gates[:, 3 * self.neurons:] = tanh(gates[:, 3 * self.neurons:])
-
-            # This is basically a slicing step
-            gf, gi, cand, go = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
-            state = gf * state_yesterday + gi * cand
-            tanh_state = tanh(state_yesterday)
-            output = go * tanh(state_yesterday)
-            cache = (gf, gi, cand, go)
-            return output, state, tanh_state, cache
 
         def feedforward(self, stimuli: np.ndarray):
             self.inputs = stimuli
@@ -340,13 +318,13 @@ class Experimental:
                           "gate input": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
                           "gate output": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX)}
             # this step might be neccesary if the first datadim is not time, but the batch index
-            # stimuli = np.transpose(stimuli, (1, 0, 2))
+            stimuli = np.transpose(stimuli, (1, 0, 2))
 
             for time in range(self.time):
                 stimulus = stimuli[time]
-                state_yesterday = self.cache["states"][time[-1]]
+                state_yesterday = self.cache["states"][time-1]
 
-                X = np.column_stack((stimulus, self.outputs[-1]))
+                X = np.column_stack((stimulus, self.cache["outputs"][-1]))
 
                 gates = X.dot(self.weights) + self.biases
                 # gates: forget, input, output
@@ -386,10 +364,10 @@ class Experimental:
                         out=self.biases)
 
         def backpropagation(self):
-            error_now = self.error
-            error_tomorrow = np.zeros_like(self.error)
+            error_now = np.zeros_like(self.error)
             gate_errors = []
-            dstate = np.zeros_like(self.states[0])
+            backpass = []
+            dstate = np.zeros_like(self.cache["states"][0])
 
             # No momentum (yet)
             self.gate_W_gradients = np.zeros_like(self.weights)
@@ -401,22 +379,23 @@ class Experimental:
                 gi = self.cache["gate input"][t]
                 cand = self.cache["candidates"][t]
                 go = self.cache["gate output"][t]
-                error_now += error_tomorrow
+                error_now += self.error[t] + error_now
 
-                dgo = sigmoid.derivative(self.cache["tanh_states"][t] * error_now)
+                dgo = sigmoid.derivative(go) * self.cache["tanh_states"][t] * error_now
                 dstate = tanh.derivative(cand) * (go * error_now + dstate)
-                dgf = sigmoid.derivative(gf) * (self.states[t - 1] * dstate)
+                dgf = sigmoid.derivative(gf) * (self.cache["states"][t - 1] * dstate)
                 dgi = sigmoid.derivative(gi) * (cand * dstate)
                 dcand = tanh.derivative(cand) * (gi * dstate)
 
-                gate_errors.append(np.column_stack((dgf, dgi, dcand, dgo)))
-                self.gate_W_gradients += self.inputs.T.dot(gate_errors)
-                self.gate_b_gradients += gate_errors
+                gate_errors.append(np.column_stack((dgf, dgi, dgo, dcand)))
+                self.gate_W_gradients += self.inputs.T.dot(gate_errors[-1])
+                self.gate_b_gradients += gate_errors[-1]
                 # Folding the (fanin, 4*neurons) part into (4, neurons)
                 # then summing the 4 matrices into 1 and getting (fanin, neurons)
-                error_tomorrow = np.transpose(
-                    gate_errors[-1].reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2)
-                ).sum(axis=0)
+                dZ = gate_errors[-1].dot(self.weights.T)
+
+                backpass.append(dZ[:, :self.neurons])  # error wrt to the previous input
+                error_now = dZ[:, self.neurons:]  # error wrt to own output tomorrow
                 dstate = gf * dstate
 
             prev_error = np.dot(gate_errors, self.weights.T)
@@ -424,7 +403,7 @@ class Experimental:
 
         def receive_error(self, error_vector: np.ndarray):
             self.error = error_vector.reshape(self.brain.m, *self.outshape) * \
-                         self.activation.derivative(self.outputs)
+                         self.activation.derivative(self.output)
 
         def shuffle(self):
             pass
