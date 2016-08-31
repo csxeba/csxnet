@@ -49,7 +49,7 @@ class NeuralNetworkBase(abc.ABC):
         self.name = ""
 
     @abc.abstractmethod
-    def learn(self, batch_size: int): pass
+    def fit(self, batch_size: int): pass
 
     @abc.abstractmethod
     def evaluate(self, on: str): pass
