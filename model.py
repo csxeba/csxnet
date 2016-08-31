@@ -1,5 +1,5 @@
 """
-Neural Network Framework on top of NumPy and/or Theano.
+Neural Network Framework on top of NumPy
 Copyright (C) 2016  Csaba Gór
 
 This program is free software; you can redistribute it and/or
@@ -18,21 +18,22 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
 
 import abc
-import sys
+import warnings
 
 import numpy as np
 
 from .brainforge import activations as actfns
 from .brainforge import costs as costfns
 
-from csxdata.utilities.nputils import ravel_to_matrix as rtm
+from csxdata.utilities.pure import niceround
 
 
 class NeuralNetworkBase(abc.ABC):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str):
 
         # Referencing the data wrapper on which we do the learning
         self.data = data
+        self.name = name
         self.N = data.N
         self.fanin, self.outsize = data.neurons_required
 
@@ -62,10 +63,10 @@ class NeuralNetworkBase(abc.ABC):
 
 
 class Network(NeuralNetworkBase):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost, name=""):
         from .brainforge.layers import InputLayer
 
-        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu)
+        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, name)
 
         self.m = 0  # Batch size goes here
 
@@ -99,11 +100,11 @@ class Network(NeuralNetworkBase):
         # brain, fanin, fshape, stride, position
 
     def add_fc(self, neurons, activation=actfns.tanh):
-        from .brainforge.layers import FFLayer
+        from .brainforge.layers import DenseLayer
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
-        self.layers.append(FFLayer(*args))
-        self.architecture.append("{} FC: {}".format(neurons, str(activation)[:4]))
+        self.layers.append(DenseLayer(*args))
+        self.architecture.append("{} Dense: {}".format(neurons, str(activation)[:4]))
         # brain, inputs, neurons, position, activation
 
     def add_drop(self, neurons, dropchance=0.25, activation=actfns.tanh):
@@ -122,94 +123,79 @@ class Network(NeuralNetworkBase):
         # brain, inputs, neurons, time_truncate, position, activation
 
     def finalize_architecture(self, activation=actfns.sigmoid):
-        from .brainforge.layers import FFLayer
-        fanin = np.prod(self.fanin)
+        from .brainforge.layers import DenseLayer
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
-        eargs = (self, np.prod(self.layers[-1].outshape), fanin, len(self.layers), activation)
-        self.predictor = FFLayer(*pargs)
-        self.encoder = FFLayer(*eargs)
+        self.predictor = DenseLayer(*pargs)
         self.layers.append(self.predictor)
-        self.architecture.append("{}|{} Pred|Enc: {}".format(self.outsize, fanin, str(activation)[:4]))
+        self.architecture.append("{} Dense: {}".format(self.outsize, str(activation)[:4]))
         self.finalized = True
 
     # ---- Methods for model fitting ----
 
-    def learn(self, batch_size):
-        costs = []
-        if not self.finalized:
-            raise RuntimeError("Architecture not finalized!")
-        if self.layers[-1] is not self.predictor:
-            self._insert_predictor()
-        for no, batch in enumerate(self.data.batchgen(batch_size)):
-            self.m = batch[0].shape[0]
-            costs.append(self._fit(batch))
-            sys.stdout.write("\rCost @ {}%: {}".format(int((no+1 * batch_size) / self.N)*100,
-                                                       costs[-1]))
-        self.age += 1
-        print()
-        return np.sum(costs) / no
+    def fit(self, batch_size=20, epochs=10, verbose=1, monitor=()):
 
-    def autoencode(self, batch_size):
-        """
-        Coordinates the autoencoding of the myData
+        def do_batch(batch_no, lessons):
+            self.m = lessons[0].shape[0]
+            cst = self._fit(lessons)
+            if verbose:
+                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
+                print("\rEpoch {}, {}%:\tCost: {}\t "
+                      .format(epoch, done_percent, niceround(cst, 5)), end="")
 
-        :param batch_size: the size of said batches
-        :return None
-        """
-        if not self.finalized:
-            raise RuntimeError("Architecture not finalized!")
-        if self.layers[-1] is not self.encoder:
-            self._insert_encoder()
-        self.N = self.data.N
-        for batch in self.data.batchgen(batch_size):
-            self.m = batch[0].shape[0]
-            self._fit((batch[0], rtm(batch[0])))
-
-    def new_autoencode(self, batches, batch_size):
+            return cst
 
         def sanity_check():
             if not self.finalized:
                 raise RuntimeError("Architecture not finalized!")
-            if self.layers[-1] is not self.encoder:
-                self._insert_encoder()
+            if self.layers[-1] is not self.predictor:
+                self._insert_predictor()
 
-        def train_encoder():
-            for no in range(batches):
-                stimuli = questions[no*batch_size:(no*batch_size)+batch_size]
-                self.m = stimuli.shape[0]
-                target = rtm(stimuli)
-                self.encoder.error = self.cost.derivative(
-                    self.encoder.feedforward(stimuli),
-                    target,
-                    self.encoder.excitation,
-                    self.encoder.activation)
-                self.encoder.weight_update()
-
-        def autoencode_layers():
-            for layer in self.layers[1:-1]:
-                autoencoder = self.layers[:1] + [layer] + [self.encoder]
-                for no in range(batches):
-                    batch = questions[no*batch_size:(no*batch_size)+batch_size]
-                    self.m = batch.shape[0]
-                    target = rtm(batch)
-                    for lyr in autoencoder:
-                        lyr.feedforward(batch)
-                    self.encoder.error = self.cost.derivative(self.encoder.output,
-                                                              target,
-                                                              self.encoder.excitation,
-                                                              self.encoder.activation)
-                    autoencoder[-2].error = self.encoder.backpropagation()
-                    for lyr in autoencoder[1:]:
-                        lyr.weight_update()
+        def print_progress():
+            tcost, tacc = self.evaluate("testing")
+            tcost = niceround(tcost, 5)
+            tacc = niceround(tacc * 100, 4)
+            print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
 
         sanity_check()
+        costs = []
+        for epoch in range(1, epochs+1):
+            costs += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
+            if "acc" in monitor:
+                print_progress()
+            print()
 
-        questions = self.data.learning[:batches*batch_size]
-        self.N = questions.shape[0]
+    def learn(self, batch_size=20, verbose=1, monitor=("acc",)):
 
-        train_encoder()
-        if len(self.layers) > 2:
-            autoencode_layers()
+        def do_batch(batch_no, lessons):
+            self.m = lessons[0].shape[0]
+            cst = self._fit(lessons)
+            if verbose:
+                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
+                print("\rEpoch {}, {}%:\tCost: {}\t "
+                      .format(epoch, done_percent, niceround(cst, 5)), end="")
+
+            return cst
+
+        def sanity_check():
+            if not self.finalized:
+                raise RuntimeError("Architecture not finalized!")
+            if self.layers[-1] is not self.predictor:
+                self._insert_predictor()
+
+        def print_progress():
+            tcost, tacc = self.evaluate("testing")
+            tcost = niceround(tcost, 5)
+            tacc = niceround(tacc * 100, 4)
+            print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
+
+        warnings.warn("learn() is deprecated! Please switch to fit()!", DeprecationWarning)
+
+        sanity_check()
+        costs = []
+        costs += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
+        if "acc" in monitor:
+            print_progress()
+        print()
 
     def _fit(self, learning_table):
         """
@@ -231,11 +217,9 @@ class Network(NeuralNetworkBase):
             questions = layer.feedforward(questions)
         # Calculate the cost derivative
         last = self.layers[-1]
-        last.receive_error(self.cost.derivative(last.output, targets) *
-                           last.activation.derivative(last.output))
+        last.receive_error(self.cost.derivative(last.output, targets))
         # Backpropagate the errors
-        for layer in self.layers[-1:1:-1]:
-            prev_layer = self.layers[layer.position - 1]
+        for layer, prev_layer in zip(self.layers[-1:0:-1], self.layers[-2::-1]):
             prev_layer.receive_error(layer.backpropagation())
         # Update weights
         for layer in self.layers[1:]:
@@ -250,7 +234,7 @@ class Network(NeuralNetworkBase):
         elif self.data.type == "regression":
             return self.predict_raw(questions)
         else:
-            raise RuntimeError("This branch shouldn't run :)")
+            raise TypeError("Unsupported Dataframe Type")
 
     def predict_class(self, questions):
         """
@@ -282,7 +266,10 @@ class Network(NeuralNetworkBase):
         predictions = self.predict_raw(questions)
         cost = self.cost(predictions, targets)
         if accuracy:
-            acc = np.average(np.equal(np.argmax(predictions, axis=1), np.argmax(targets)))
+            pred_classes = np.argmax(predictions, axis=1)
+            trgt_classes = np.argmax(targets, axis=1)
+            eq = np.equal(pred_classes, trgt_classes)
+            acc = np.average(eq)
             return cost, acc
         return cost
 
@@ -290,7 +277,7 @@ class Network(NeuralNetworkBase):
 
     def _insert_encoder(self):
         if not isinstance(self.cost, costfns["mse"]) or self.cost is not costfns["mse"]:
-            print("Chosen cost function not supported in autoencoding!\nAttention! Falling back to MSE!")
+            print("Cost function not supported in autoencoding! Falling back to MSE!")
             self.cost = costfns["mse"]
         self.layers[-1] = self.encoder
         print("Inserted encoder as output layer!")

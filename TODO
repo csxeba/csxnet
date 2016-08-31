@@ -1,8 +1,17 @@
-TODO: be more Keras-like, rename .learn to .fit and reimplement it so it can handle a nb_ebochs parameter
-TODO: implement the Keras method fit_generator to be able to work on massive datasets
-TODO: figure out the CNN backpropagation
-TODO: figure out the RNN/LSTM/GRU backpropagation and implement the layers
-TODO: figure out the Highway Layer backpropagation and implement the layer
-TODO: write a predictor wrapper, which can extract weights from a keras model and use them to transform data
-
-TODO: write tests!!!!!!!!!!!!!
+TODO: be more Keras-like
+ -- rename add_fc to add_dense then debug EVERYTHING :(
+ -- create add() method which expects Layer instances
+ -- create fit_generator method
+TODO: implement more Layer architectures
+ -- figure out the CNN backpropagation
+ -- figure out the RNN/LSTM/GRU backpropagation and implement the layers
+ -- figure out the Highway Layer backpropagation and implement the layer
+TODO: write a predictor wrapper, which extracts weights from a model
+TODO: work more on the output strings
+TODO: implement better logging and maybe other callback types!
+TODO: implement saving and loading layerwise!
+ -- somehow implement weight matrix saving and loading, possibly in some universal format!
+ -- implement architecture saving
+ -- implement hyperparameter saving
+TODO: implement Autoencoding by somehow reversing the architecture string
+TODO: figure out a way to test these stochastic models :S

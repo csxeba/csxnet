@@ -80,7 +80,7 @@ class _VecLayer(_LayerBase):
     def shuffle(self) -> None: pass
 
 
-class _FCLayer(_LayerBase):
+class _FFLayer(_LayerBase):
     """Base class for the fully connected layer types"""
     def __init__(self, brain, neurons: int, position: int, activation):
         _LayerBase.__init__(self, brain, position, activation)
@@ -111,9 +111,14 @@ class _FCLayer(_LayerBase):
     def shuffle(self) -> None: pass
 
 
-class FFLayer(_FCLayer):
+class DenseLayer(_FFLayer):
+    """Just your regular Densely Connected Layer
+
+    Aka Dense (Keras), Fully Connected, Feedforward, etc.
+    Elementary building stone for the Multilayer Perceptron model.
+    """
     def __init__(self, brain, inputs, neurons, position, activation):
-        _FCLayer.__init__(self, brain=brain,
+        _FFLayer.__init__(self, brain=brain,
                           neurons=neurons, position=position,
                           activation=activation)
 
@@ -156,6 +161,8 @@ class FFLayer(_FCLayer):
 
         :return: numpy.ndarray
         """
+        if self.brain.mu:
+            self.velocity += self.gradients
         # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
         self.gradients = np.dot(self.inputs.T, self.error) / self.brain.m
         # (dC / dW) = error * (dZ / dA_), where A_ is the previous output
@@ -168,25 +175,35 @@ class FFLayer(_FCLayer):
 
         :return: None
         """
-        # Apply L2 regularization, aka weight decay
-        if self.brain.lmbd2:
-            l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
-            self.weights *= l2
-        if self.brain.lmbd1:
-            l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-            self.weights -= l1 * np.sign(self.weights)
 
-        # Update weights and biases
-        if self.brain.mu:
-            self.velocity += self.gradients
-            np.subtract(self.weights, self.brain.mu * self.velocity * self.brain.eta,
+        def apply_weight_decay():
+            if self.brain.lmbd2:
+                l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
+                self.weights *= l2
+            if self.brain.lmbd1:
+                l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
+                self.weights -= l1 * np.sign(self.weights)
+
+        def descend_on_velocity():
+            np.subtract(self.weights, self.brain.mu * (self.velocity + self.gradients) * self.brain.eta,
                         out=self.weights)
-        else:
+
+        def descend_on_gradient():
             np.subtract(self.weights, self.gradients * self.brain.eta,
                         out=self.weights)
 
-        np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
-                    out=self.biases)
+        def modify_biases():
+            np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
+                        out=self.biases)
+
+        apply_weight_decay()
+
+        if self.brain.mu:
+            descend_on_velocity()
+        else:
+            descend_on_gradient()
+
+        modify_biases()
 
     def receive_error(self, error):
         """
@@ -205,9 +222,9 @@ class FFLayer(_FCLayer):
         self.weights = np.random.randn(*ws) / np.sqrt(ws[0])
 
 
-class DropOut(FFLayer):
+class DropOut(DenseLayer):
     def __init__(self, brain, inputs, neurons, dropout, position, activation):
-        FFLayer.__init__(self, brain, inputs, neurons, position, activation)
+        DenseLayer.__init__(self, brain, inputs, neurons, position, activation)
 
         self.dropchance = 1 - dropout
         self.mask = None
@@ -220,40 +237,20 @@ class DropOut(FFLayer):
         return self.output
 
     def predict(self, question):
-        return FFLayer.predict(self, question) * self.dropchance
+        return DenseLayer.predict(self, question) * self.dropchance
 
     def backpropagation(self):
 
-        self.velocity += self.gradients
+        if self.brain.mu:
+            self.velocity += self.gradients
         self.gradients = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
 
-        prev = self.brain.layers[self.position-1]
-        posh = [self.error.shape[0]] + list(prev.outshape)
-        prev_error = np.dot(self.error, self.weights.T * self.mask.T).reshape(posh)
-        prev_error *= prev.activation.derivative(prev.output)
-
-        return prev_error
-
-    def weight_update(self):
-        # Apply L1/L2 regularization, aka weight decay
-        l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-        l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
-        if self.brain.lmbd2:
-            self.weights *= l2
-        if self.brain.lmbd1:
-            self.weights -= l1 * np.sign(self.weights)
-
-        np.subtract(self.weights,
-                    (self.gradients + self.brain.mu * self.velocity) *
-                    self.brain.eta,
-                    out=self.weights)
-        np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
-                    out=self.biases)
+        return np.dot(self.error, self.weights.T * self.mask.T)
 
 
-class InputLayer(_FCLayer):
+class InputLayer(_FFLayer):
     def __init__(self, brain, inshape):
-        _FCLayer.__init__(self, brain=brain, neurons=0, position=1, activation="linear")
+        _FFLayer.__init__(self, brain=brain, neurons=0, position=1, activation="linear")
         self.outshape = inshape
 
     def feedforward(self, questions):
@@ -288,9 +285,9 @@ class InputLayer(_FCLayer):
 
 class Experimental:
 
-    class LSTM(_FCLayer):
+    class LSTM(_FFLayer):
         def __init__(self, brain, neurons, inputs, position, activation="tanh"):
-            _FCLayer.__init__(self, brain, neurons, position, activation)
+            _FFLayer.__init__(self, brain, neurons, position, activation)
 
             print("Warning! CsxNet LSTM Layer is experimental!")
 
@@ -408,9 +405,9 @@ class Experimental:
         def shuffle(self):
             pass
 
-    class RLayer(FFLayer):
+    class RLayer(DenseLayer):
         def __init__(self, brain, inputs, neurons, time_truncate, position, activation):
-            FFLayer.__init__(self, brain, inputs, neurons, position, activation)
+            DenseLayer.__init__(self, brain, inputs, neurons, position, activation)
 
             self.time_truncate = time_truncate
             self.rweights = np.random.randn(neurons, neurons)
@@ -455,57 +452,6 @@ class Experimental:
         def weight_update(self):
             self.weights -= self.brain.eta * self._grad_weights
             self.rweights -= self.brain.eta * self._grad_rweights
-
-        # noinspection PyUnresolvedReferences
-        def __bptt_reference(self, x, y):
-            """FROM www.wildml.com"""
-            T = len(y)
-            # Perform forward propagation
-            # Catch network output and hidden output
-            o, s = self.forward_propagation(x)
-            # We accumulate the gradients in these variables
-            dLdU = np.zeros(self.U.shape)
-            dLdV = np.zeros(self.V.shape)
-            dLdW = np.zeros(self.W.shape)
-
-            # OMG THIS SIMPLY CALCULATES (output - target*)...
-            # Which by the way is the grad of Xent wrt to the outweights
-            # aka the output error
-            # *provided that target is not converted to 1-hot vectors
-            delta_o = o
-            delta_o[np.arange(len(y)), y] -= 1.
-
-            for t in np.arange(T)[::-1]:
-                # This is the sum of the output weights' gradients
-                dLdV += np.outer(delta_o[t], s[t].T)
-                # backpropagating to the hiddens (Weights * Er) * tanh'(Z)
-                delta_t = self.V.T.dot(delta_o[t]) * (1 - (s[t] ** 2))
-                # Backpropagation through time (for at most self.time_truncate steps)
-                for bptt_step in np.arange(max(0, t - self.bptt_truncate), t + 1)[::-1]:
-                    dLdW += np.outer(delta_t, s[bptt_step - 1])
-                    dLdU[:, x[bptt_step]] += delta_t
-                    # Update delta for next step
-                    delta_t = self.W.T.dot(delta_t) * (1 - s[bptt_step - 1] ** 2)
-            return [dLdU, dLdV, dLdW]
-
-        # noinspection PyUnresolvedReferences
-        def __forward_propagation(self, x):
-            """FROM www.wildml.com"""
-            # The total number of time steps
-            T = len(x)
-            # During forward propagation we save all hidden states in s because need them later.
-            # We add one additional element for the initial hidden, which we set to 0
-            s = np.zeros((T + 1, self.hidden_dim))
-            s[-1] = np.zeros(self.hidden_dim)
-            # The outsize at each time step. Again, we save them for later.
-            o = np.zeros((T, self.word_dim))
-            # For each time step...
-            for t in np.arange(T):
-                # Note that we are indxing U by x[t]. This is the same as multiplying U with a one-hot vector.
-                # aka self.U.dot(x)
-                s[t] = np.tanh(self.U[:, x[t]] + self.W.dot(s[t - 1]))
-                o[t] = softmax(self.V.dot(s[t]))
-            return [o, s]
 
     class PoolLayer(_VecLayer):
         def __init__(self, brain, inshape, fshape, stride, position):
