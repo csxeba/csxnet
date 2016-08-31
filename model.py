@@ -22,8 +22,7 @@ import warnings
 
 import numpy as np
 
-from .brainforge import activations as actfns
-from .brainforge import costs as costfns
+from .util import activations, costs
 
 from csxdata.utilities.pure import niceround
 
@@ -71,7 +70,7 @@ class Network(NeuralNetworkBase):
         self.m = 0  # Batch size goes here
 
         if isinstance(cost, str):
-            self.cost = costfns[cost]
+            self.cost = costs[cost]
         else:
             self.cost = cost
 
@@ -84,7 +83,7 @@ class Network(NeuralNetworkBase):
 
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=actfns.tanh):
+    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=activations.tanh):
         from .brainforge.layers import Experimental
         fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
@@ -99,7 +98,7 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Pool".format(pool))
         # brain, fanin, fshape, stride, position
 
-    def add_fc(self, neurons, activation=actfns.tanh):
+    def add_fc(self, neurons, activation=activations.tanh):
         from .brainforge.layers import DenseLayer
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
@@ -107,14 +106,14 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Dense: {}".format(neurons, str(activation)[:4]))
         # brain, inputs, neurons, position, activation
 
-    def add_drop(self, neurons, dropchance=0.25, activation=actfns.tanh):
+    def add_drop(self, neurons, dropchance=0.25, activation=activations.tanh):
         from .brainforge.layers import DropOut
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, time_truncate=5, activation=actfns.tanh):
+    def add_rec(self, neurons, time_truncate=5, activation=activations.tanh):
         from .brainforge.layers import Experimental
         inpts = np.prod(self.layers[-1].outshape)
         args = self, inpts, neurons, time_truncate, len(self.layers), activation
@@ -122,7 +121,7 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} RecL(time={}): {}".format(neurons, time_truncate, activation[:4]))
         # brain, inputs, neurons, time_truncate, position, activation
 
-    def finalize_architecture(self, activation=actfns.sigmoid):
+    def finalize_architecture(self, activation=activations.sigmoid):
         from .brainforge.layers import DenseLayer
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
         self.predictor = DenseLayer(*pargs)
@@ -157,9 +156,9 @@ class Network(NeuralNetworkBase):
             print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
 
         sanity_check()
-        costs = []
+        cost = []
         for epoch in range(1, epochs+1):
-            costs += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
+            cost += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
             if "acc" in monitor:
                 print_progress()
             print()
@@ -171,8 +170,8 @@ class Network(NeuralNetworkBase):
             cst = self._fit(lessons)
             if verbose:
                 done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
-                print("\rEpoch {}, {}%:\tCost: {}\t "
-                      .format(epoch, done_percent, niceround(cst, 5)), end="")
+                print("\r{}%:\tCost: {}\t "
+                      .format(done_percent, niceround(cst, 5)), end="")
 
             return cst
 
@@ -191,8 +190,8 @@ class Network(NeuralNetworkBase):
         warnings.warn("learn() is deprecated! Please switch to fit()!", DeprecationWarning)
 
         sanity_check()
-        costs = []
-        costs += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
+        for bno, batch in enumerate(self.data.batchgen(batch_size)):
+            do_batch(bno, batch)
         if "acc" in monitor:
             print_progress()
         print()
@@ -276,9 +275,9 @@ class Network(NeuralNetworkBase):
     # ---- Private helper methods ----
 
     def _insert_encoder(self):
-        if not isinstance(self.cost, costfns["mse"]) or self.cost is not costfns["mse"]:
+        if not isinstance(self.cost, costs["mse"]) or self.cost is not costs["mse"]:
             print("Cost function not supported in autoencoding! Falling back to MSE!")
-            self.cost = costfns["mse"]
+            self.cost = costs["mse"]
         self.layers[-1] = self.encoder
         print("Inserted encoder as output layer!")
 
@@ -318,7 +317,7 @@ class Network(NeuralNetworkBase):
     def dream(self, matrix):
         """Reverse-feedforward"""
         assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
-        assert all([(isinstance(layer.activation, actfns.sigmoid)) or (layer.activation is actfns.sigmoid)
+        assert all([(isinstance(layer.activation, activations.sigmoid)) or (layer.activation is activations.sigmoid)
                     for layer in self.layers[1:]]), "Only Sigmoid is supported!"
 
         from csxdata.utilities.nputils import logit
@@ -341,7 +340,7 @@ class FeedForwardNet(Network):
     """
 
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
-                 cost=costfns.xent, activation=actfns.tanh):
+                 cost=costs.xent, activation=activations.tanh):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
         if isinstance(hiddens, int):
@@ -351,4 +350,4 @@ class FeedForwardNet(Network):
 
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=activation)
-        self.finalize_architecture(activation=actfns.sigmoid)
+        self.finalize_architecture(activation=activations.sigmoid)

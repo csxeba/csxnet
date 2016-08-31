@@ -1,5 +1,4 @@
-from . import activations
-from . import costs
+from ..util import activations, costs
 
 from csxnet.model import Network
 from csxdata.frames import CData

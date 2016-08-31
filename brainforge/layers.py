@@ -3,11 +3,12 @@ import abc
 import numpy as np
 from scipy.ndimage import convolve
 
-from ._activations import activation as actfns, sigmoid, tanh
+from ..util import activations
+from ..util import sigmoid, tanh
 from ..util import l1term, l2term, outshape, calcsteps, white
 
+from csxdata import floatX
 from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
-from csxdata.const import floatX
 
 
 class _LayerBase(abc.ABC):
@@ -16,7 +17,7 @@ class _LayerBase(abc.ABC):
         self.brain = brain
         self.position = position
         if isinstance(activation, str):
-            self.activation = actfns[activation]
+            self.activation = activations[activation]
         else:
             self.activation = activation
 
@@ -411,7 +412,7 @@ class Experimental:
 
             self.time_truncate = time_truncate
             self.rweights = np.random.randn(neurons, neurons)
-            self._grad_rweights = np.zeros_like(self.rweights)
+            self.rgradients = np.zeros_like(self.rweights)
 
         def feedforward(self, questions):
             self.inputs = rtm(questions)
@@ -427,15 +428,15 @@ class Experimental:
         def backpropagation(self):
             """Backpropagation through time (BPTT)"""
             T = self.error.shape[0]
-            self._grad_weights = np.zeros(self.weights.shape)
-            self._grad_rweights = np.zeros(self.rweights.shape)
+            self.gradients = np.zeros(self.weights.shape)
+            self.rgradients = np.zeros(self.rweights.shape)
             prev_error = np.zeros_like(self.inputs)
             for t in range(0, T, step=-1):
                 t_delta = self.error[t]
                 for bptt in range(max(0, t - self.time_truncate), t + 1, step=-1):
                     # TODO: check the order of parameters. Transposition possibly needed somewhere
-                    self._grad_rweights += np.outer(t_delta, self.output[bptt - 1])
-                    self._grad_weights += np.dot(self._grad_weights, self.inputs) + t_delta
+                    self.rgradients += np.outer(t_delta, self.output[bptt - 1])
+                    self.gradients += np.dot(self.gradients, self.inputs) + t_delta
                     t_delta = self.rweights.dot(t_delta) * self.activation.derivative(self.output[bptt - 1])
                 prev_error[t] = t_delta
             return prev_error
@@ -450,8 +451,8 @@ class Experimental:
             self.error = rtm(error)
 
         def weight_update(self):
-            self.weights -= self.brain.eta * self._grad_weights
-            self.rweights -= self.brain.eta * self._grad_rweights
+            self.weights -= self.brain.eta * self.gradients
+            self.rweights -= self.brain.eta * self.rgradients
 
     class PoolLayer(_VecLayer):
         def __init__(self, brain, inshape, fshape, stride, position):
@@ -679,3 +680,35 @@ class Experimental:
 
         def shuffle(self):
             self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))
+
+    class AboLayer(_LayerBase):
+        def __init__(self, brain, position, activation):
+            _LayerBase.__init__(self, brain, position, activation)
+            self.brain = brain
+            self.fanin = brain.layers[-1].fanout
+            self.neurons = []
+
+        def add_minion(self, empty_network):
+            minion = empty_network
+            minion.add_fc(10)
+            minion.finalize_architecture()
+            self.neurons.append(minion)
+
+        def feedforward(self, inputs):
+            """this ain't so simple after all O.O"""
+            pass
+
+        def receive_error(self, error_vector: np.ndarray) -> None:
+            pass
+
+        def shuffle(self) -> None:
+            pass
+
+        def backpropagation(self) -> np.ndarray:
+            pass
+
+        def weight_update(self) -> None:
+            pass
+
+        def predict(self, stimuli: np.ndarray) -> np.ndarray:
+            pass
