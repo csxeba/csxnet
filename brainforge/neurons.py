@@ -29,4 +29,3 @@ class Neuron:
 
     def receive_error(self, errors):
         self.error = self.activation.derivative(errors)
-

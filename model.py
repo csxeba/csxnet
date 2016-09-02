@@ -133,14 +133,9 @@ class Network(NeuralNetworkBase):
 
     def fit(self, batch_size=20, epochs=10, verbose=1, monitor=()):
 
-        def do_batch(batch_no, lessons):
+        def do_batch(lessons):
             self.m = lessons[0].shape[0]
             cst = self._fit(lessons)
-            if verbose:
-                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
-                print("\rEpoch {}, {}%:\tCost: {}\t "
-                      .format(epoch, done_percent, niceround(cst, 5)), end="")
-
             return cst
 
         def sanity_check():
@@ -159,6 +154,12 @@ class Network(NeuralNetworkBase):
         cost = []
         for epoch in range(1, epochs+1):
             cost += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
+            for i, batch in enumerate(self.data.batchgen(batch_size)):
+                cost.append(do_batch(batch))
+                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
+                if verbose:
+                    print("\rEpoch: {}")
+
             if "acc" in monitor:
                 print_progress()
             print()
