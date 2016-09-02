@@ -16,6 +16,7 @@ class _LayerBase(abc.ABC):
     def __init__(self, brain, position, activation):
         self.brain = brain
         self.position = position
+        self.inputs = None
         if isinstance(activation, str):
             self.activation = activations[activation]
         else:
@@ -38,6 +39,9 @@ class _LayerBase(abc.ABC):
 
     @abc.abstractmethod
     def shuffle(self) -> None: pass
+
+    @abc.abstractproperty
+    def outshape(self): pass
 
 
 class _VecLayer(_LayerBase):
@@ -80,6 +84,9 @@ class _VecLayer(_LayerBase):
     @abc.abstractmethod
     def shuffle(self) -> None: pass
 
+    @abc.abstractproperty
+    def outshape(self): pass
+
 
 class _FFLayer(_LayerBase):
     """Base class for the fully connected layer types"""
@@ -87,7 +94,6 @@ class _FFLayer(_LayerBase):
         _LayerBase.__init__(self, brain, position, activation)
 
         self.neurons = neurons
-        self.outshape = (neurons,)
         self.inputs = None
 
         self.output = np.zeros((neurons,))
@@ -111,12 +117,15 @@ class _FFLayer(_LayerBase):
     @abc.abstractmethod
     def shuffle(self) -> None: pass
 
+    def outshape(self):
+        return self.neurons
+
 
 class DenseLayer(_FFLayer):
     """Just your regular Densely Connected Layer
 
     Aka Dense (Keras), Fully Connected, Feedforward, etc.
-    Elementary building stone for the Multilayer Perceptron model.
+    Elementary building block of the Multilayer Perceptron.
     """
     def __init__(self, brain, inputs, neurons, position, activation):
         _FFLayer.__init__(self, brain=brain,
@@ -127,7 +136,6 @@ class DenseLayer(_FFLayer):
         self.gradients = np.zeros_like(self.weights)
         self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
-        self.inputs = None
         self.N = 0  # current batch size
         # print("<FF", self.activation, "layer> created with input size {} and output size {} @ position {}"
         #       .format(inputs, neurons, position))
@@ -249,10 +257,10 @@ class DropOut(DenseLayer):
         return np.dot(self.error, self.weights.T * self.mask.T)
 
 
-class InputLayer(_FFLayer):
+class InputLayer(_LayerBase):
     def __init__(self, brain, inshape):
-        _FFLayer.__init__(self, brain=brain, neurons=0, position=1, activation="linear")
-        self.outshape = inshape
+        _LayerBase.__init__(self, brain, position=0, activation="linear")
+        self.neurons = inshape
 
     def feedforward(self, questions):
         """
@@ -273,6 +281,7 @@ class InputLayer(_FFLayer):
         :param stimuli: numpy.ndarray
         :return: numpy.ndarray
         """
+        self.inputs = stimuli
         return stimuli
 
     def backpropagation(self): pass
@@ -283,6 +292,10 @@ class InputLayer(_FFLayer):
 
     def shuffle(self): pass
 
+    @property
+    def outshape(self):
+        return self.neurons
+
 
 class Experimental:
 
@@ -292,7 +305,8 @@ class Experimental:
 
             print("Warning! CsxNet LSTM Layer is experimental!")
 
-            self.Z = neurons + inputs
+            self.Z = neurons + inputs  # size of column stacked <inputs, outputs>
+            self.G = 3 * neurons  # size of 3 gates -> needed for slicing
 
             self.weights = white(self.Z, neurons * 4)
             self.biases = white(1, neurons * 4)
@@ -301,23 +315,18 @@ class Experimental:
             self.gate_b_gradients = np.zeros_like(self.biases)
 
             self.output = None
-            self.cache = None
+            self.cache = self.Cache(self.brain.m, self.Z)
 
             self.time = 0
             self.fanin = inputs
 
         def feedforward(self, stimuli: np.ndarray):
-            self.inputs = stimuli
-            self.time = stimuli.shape[1]
-            self.cache = {"outputs": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
-                          "states": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
-                          "candidates": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
-                          "gate forget": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
-                          "gate input": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX),
-                          "gate output": np.zeros((self.time, self.brain.m, self.Z), dtype=floatX)}
-            # this step might be neccesary if the first datadim is not time, but the batch index
-            stimuli = np.transpose(stimuli, (1, 0, 2))
-
+            # transposition is neccesary because the first datadim is not time,
+            # but the batch index. (compatibility with CsxData and Keras)
+            self.inputs = np.transpose(stimuli, (1, 0, 2))
+            self.time = self.inputs.shape[0]
+            self.cache.reset(time=self.time)
+            # TODO: create a pretty nested function
             for time in range(self.time):
                 stimulus = stimuli[time]
                 state_yesterday = self.cache["states"][time-1]
@@ -326,19 +335,20 @@ class Experimental:
 
                 gates = X.dot(self.weights) + self.biases
                 # gates: forget, input, output
-                gates[:, :self.neurons * 3] = sigmoid(gates[:, self.neurons * 3])
+                # TODO: rewrite this with np.split and omit transposition
+                gf, gi, go = np.transpose(sigmoid(gates[:, self.neurons * 3])
+                                          .reshape(self.fanin, 3, self.neurons),
+                                          axes=(1, 0, 2))
                 # state candidate
-                gates[:, 3 * self.neurons:] = tanh(gates[:, 3 * self.neurons:])
+                candidate = gates[:, 3 * self.neurons:] = tanh(gates[:, 3 * self.neurons:])
 
-                # This is basically a slicing step
-                gf, gi, go, candidate = np.transpose(gates.reshape(self.fanin, 4, self.neurons), axes=(1, 0, 2))
                 state = gf * state_yesterday + gi * candidate
                 tanh_state = tanh(state)
                 output = go * tanh_state
 
                 self.cache["outputs"][time] += output
                 self.cache["states"][time] += state
-                self.cache["tanh_states"][time] += tanh_state
+                self.cache["tanh states"][time] += tanh_state
                 self.cache["gate forget"][time] += gf
                 self.cache["gate input"][time] += gf
                 self.cache["gate output"][time] += gf
@@ -352,7 +362,76 @@ class Experimental:
                 self.output = self.cache["outputs"]
 
         def predict(self, stimuli: np.ndarray):
-            pass
+
+            def timestep(z, C):
+                """
+                One step in time
+
+                Where
+                f, i, o are the forget gate, input gate and output gate activations.
+                f determines how much information we forget from the previous cell state (0.0 means forget all)
+                i determines how much information we add to the current cell state from the z stack.
+                o determines how much information we provide as layer output from the cell state.
+                candidate is a cell state candidate, it is added to cell state after appliing i to it.
+                :param z: the stack: current input concatenated with the output from the previous timestep
+                :param C: the cell state from the previous timestep
+                """
+                # Calculate the gate activations
+                preact = z.dot(self.weights)
+                f, i, o = sigmoid(preact[:self.G]).reshape(self.Z, 3, self.neurons).transpose(1, 0, 2)
+                # Calculate the cell state candidate
+                candidate = tanh(preact[self.G:])
+                # Apply forget gate to the previus cell state receives as a parameter
+                C *= f
+                # Apply input gate to cell state candidate, then update cell state
+                C += i * candidate
+                # Apply output gate to tanh of cell state. This is the layer output at timestep <t>
+                return o * tanh(C)
+
+            # Initialize cell state and layer outputs to all 0s
+            state = np.zeros(self.outshape)
+            outputs = np.zeros(self.outshape)
+            # Transposition is needed so timestep becomes dim0, 4 compatibility with keras and csxdata
+            stimuli = np.transpose(stimuli, (1, 0, 2))
+            for inputs in stimuli:
+                stack = np.column_stack((inputs, outputs))
+                outputs, state = timestep(stack, state)
+            return outputs
+
+        def backpropagation(self):
+
+            def bptimestep(t, dy, dC):
+                assert dC is 0 and t == self.time
+                cch = self.cache
+                dC = tanh.derivative(cch["states"][t]) * cch["gate output"][t] * dy + dC
+                do = sigmoid.derivative(cch["gate output"][t]) * cch["tanh states"] * dC
+                di = sigmoid.derivative(cch["gate input"][t]) * cch["candidates"] * dC
+                df = sigmoid.derivative(cch["gate forget"][t]) * cch["states"][t-1] * dC
+                dcand = tanh.derivative(cch["cadidates"][t]) * cch["gate input"][t] * dC
+                deltas = np.concatenate((df, di, df, do, dcand), axis=-1)
+                dZ = deltas.dot(self.weights.T)
+                gW = self.inputs[t].T.dot(deltas)
+                return gW, dZ, dC
+
+            self.gate_W_gradients = np.zeros_like(self.weights)
+            dstate = 0  # so bptt dC receives + 0 @ time == self.time
+            deltaY = np.zeros(self.outshape, dtype=floatX)
+            deltaX = np.zeros((self.time, self.brain.m, self.inputs), dtype=floatX)
+
+            for time in range(self.time, -1, -1):
+                if time < self.time:
+                    dstate *= self.cache["gate forget"][time+1]
+                gradW, deltaZ, dstate = bptimestep(time, deltaY, dstate)
+                deltaY = deltaZ[self.neurons:]
+                deltaX[time] = deltaZ[self.neurons:]
+                self.gate_W_gradients += gradW
+
+            if 1:
+                sm = deltaX.sum(axis=0)
+                assert sm.shape == (self.brain.m, self.inputs) == self.brain.layers[self.position-1].shape
+                return sm
+            else:
+                return deltaX
 
         def weight_update(self):
             # Update weights and biases
@@ -361,50 +440,54 @@ class Experimental:
             np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
                         out=self.biases)
 
-        def backpropagation(self):
-            error_now = np.zeros_like(self.error)
-            gate_errors = []
-            backpass = []
-            dstate = np.zeros_like(self.cache["states"][0])
-
-            # No momentum (yet)
-            self.gate_W_gradients = np.zeros_like(self.weights)
-            self.gate_b_gradients = np.zeros_like(self.biases)
-
-            # backprop through time
-            for t in range(0, self.time, -1):
-                gf = self.cache["gate forget"][t]
-                gi = self.cache["gate input"][t]
-                cand = self.cache["candidates"][t]
-                go = self.cache["gate output"][t]
-                error_now += self.error[t] + error_now
-
-                dgo = sigmoid.derivative(go) * self.cache["tanh_states"][t] * error_now
-                dstate = tanh.derivative(cand) * (go * error_now + dstate)
-                dgf = sigmoid.derivative(gf) * (self.cache["states"][t - 1] * dstate)
-                dgi = sigmoid.derivative(gi) * (cand * dstate)
-                dcand = tanh.derivative(cand) * (gi * dstate)
-
-                gate_errors.append(np.column_stack((dgf, dgi, dgo, dcand)))
-                self.gate_W_gradients += self.inputs.T.dot(gate_errors[-1])
-                self.gate_b_gradients += gate_errors[-1]
-                # Folding the (fanin, 4*neurons) part into (4, neurons)
-                # then summing the 4 matrices into 1 and getting (fanin, neurons)
-                dZ = gate_errors[-1].dot(self.weights.T)
-
-                backpass.append(dZ[:, :self.neurons])  # error wrt to the previous input
-                error_now = dZ[:, self.neurons:]  # error wrt to own output tomorrow
-                dstate = gf * dstate
-
-            prev_error = np.dot(gate_errors, self.weights.T)
-            return prev_error
-
         def receive_error(self, error_vector: np.ndarray):
-            self.error = error_vector.reshape(self.brain.m, *self.outshape) * \
-                         self.activation.derivative(self.output)
+            time, neurons = self.outshape
+            self.error = error_vector.reshape(self.brain.m, time, neurons).transpose(1, 0, 2)
+            self.error *= self.activation.derivative(self.output)
 
         def shuffle(self):
             pass
+
+        @property
+        def outshape(self):
+            return self.time, self.neurons
+
+        class Cache:
+            def __init__(self, m, Z):
+                self.keys = ("outputs", "tanh states", "gate output", "states",
+                             "candidates", "gate input", "gate forget")
+                self.k = len(self.keys)
+                self.m = m
+                self.Z = Z
+                self.t = None
+                self.innards = None
+
+            def assertkey(self, item):
+                if item not in self.keys:
+                    raise IndexError("There is no cache named {}".format(item))
+
+            def reset(self, time=None):
+                if self.t is None and time is None:
+                    raise RuntimeError("No previous time information is available! Supply time parameter!")
+                if time is None:
+                    time = self.t
+                self.t = time
+                self.innards = np.zeros((self.k, time, self.m, self.Z), dtype=floatX)
+
+            def __getitem__(self, item):
+                self.assertkey(item)
+                return self.innards[self.keys.index(item)]
+
+            def __setitem__(self, key, value):
+                self.assertkey(key)
+                if value.shape != (self.m, self.Z):
+                    raise ValueError("Shapes differ: self: {} != {} :value"
+                                     .format(self.oneshape, value.shape))
+                self.innards[self.keys.index(key)] = value
+
+            def __delitem__(self, key):
+                self.assertkey(key)
+                self[key] = np.zeros((self.m, self.Z), dtype=floatX)
 
     class RLayer(DenseLayer):
         def __init__(self, brain, inputs, neurons, time_truncate, position, activation):
@@ -460,7 +543,7 @@ class Experimental:
                                inshape=inshape, fshape=fshape,
                                stride=stride, position=position,
                                activation="linear")
-            self.outshape = (self.inshape[0], self.outshape[0], self.outshape[1])
+            self.outdim = self.inshape[0], self.outshape[0], self.outshape[1]
             self.backpass_filter = None
             print("<PoolLayer> created with fanin {} and outshape {} @ position {}"
                   .format(self.inshape, self.outshape, position))
@@ -546,6 +629,10 @@ class Experimental:
         def shuffle(self):
             pass
 
+        @property
+        def outshape(self):
+            return self.outdim
+
     class ConvLayer(_VecLayer):
         def __init__(self, brain, fshape, inshape, num_filters, stride, position, activation):
             _VecLayer.__init__(self, brain=brain,
@@ -556,7 +643,7 @@ class Experimental:
             chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
             print(chain)
             self.inputs = np.zeros(self.inshape)
-            self.outshape = num_filters, self.outshape[0], self.outshape[1]
+            self.outdim = num_filters, self.outshape[0], self.outshape[1]
             self.filters = white(num_filters, np.prod(fshape))
             self.gradients = np.zeros_like(self.filters)
             self.velocity = np.zeros_like(self.filters)
@@ -681,6 +768,10 @@ class Experimental:
         def shuffle(self):
             self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))
 
+        @property
+        def outshape(self):
+            return self.outdim
+
     class AboLayer(_LayerBase):
         def __init__(self, brain, position, activation):
             _LayerBase.__init__(self, brain, position, activation)
@@ -712,3 +803,6 @@ class Experimental:
 
         def predict(self, stimuli: np.ndarray) -> np.ndarray:
             pass
+
+        def outshape(self):
+            return ...
