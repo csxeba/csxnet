@@ -15,3 +15,4 @@ TODO: implement saving and loading layerwise!
  -- implement hyperparameter saving
 TODO: implement Autoencoding by somehow reversing the architecture string
 TODO: figure out a way to test these stochastic models :S
+TODO: omit the implicit dataframe reference :(
