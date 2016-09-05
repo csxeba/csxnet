@@ -28,13 +28,16 @@ from csxdata.utilities.pure import niceround
 
 
 class NeuralNetworkBase(abc.ABC):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str):
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str, fanin=0, outsize=0, N=0):
 
         # Referencing the data wrapper on which we do the learning
         self.data = data
         self.name = name
-        self.N = data.N
-        self.fanin, self.outsize = data.neurons_required
+        if data is not None:
+            self.N = data.N
+            self.fanin, self.outsize = data.neurons_required
+        else:
+            self.fanin, self.outsize, self.N = fanin, outsize, N
 
         # Parameters required for SGD
         self.eta = eta
