@@ -1,4 +1,4 @@
-from ..util import activations, costs
+from ..util import act_fns, cost_fns
 
 from csxnet.model import Network
 from csxdata.frames import CData
@@ -15,13 +15,13 @@ class OnMNIST:
     def shallow_CNN():
         eta = 0.8
         lmbda = 5.0
-        cost = costs.xent
+        cost = cost_fns.xent
 
         net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
-        net.add_conv(fshape=(3, 3), n_filters=1, stride=1, activation=activations.sigmoid)
+        net.add_conv(fshape=(3, 3), n_filters=1, stride=1, activation=act_fns.sigmoid)
         net.add_pool(pool=2)
-        net.add_fc(neurons=80, activation=activations.sigmoid)
-        net.finalize_architecture(activation=activations.sigmoid)
+        net.add_fc(neurons=80, activation=act_fns.sigmoid)
+        net.finalize_architecture(activation=act_fns.sigmoid)
 
         epochs = 10
 
@@ -31,15 +31,15 @@ class OnMNIST:
     def deep_CNN():
         eta = 0.8
         lmbda = 5.0
-        cost = costs.xent
+        cost = cost_fns.xent
 
         net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
-        net.add_conv(fshape=(9, 9), n_filters=3, stride=1, activation=activations.sigmoid)
+        net.add_conv(fshape=(9, 9), n_filters=3, stride=1, activation=act_fns.sigmoid)
         net.add_pool(pool=2)
-        net.add_conv(fshape=(3, 3), n_filters=3, stride=1, activation=activations.sigmoid)
+        net.add_conv(fshape=(3, 3), n_filters=3, stride=1, activation=act_fns.sigmoid)
         net.add_pool(pool=2)
-        net.finalize_architecture(activation=activations.sigmoid)
+        net.finalize_architecture(activation=act_fns.sigmoid)
 
         epochs = 10
 
@@ -49,10 +49,10 @@ class OnMNIST:
     def dropper():
         eta = 0.8
         lmbda = 5.0
-        cost = costs.xent
+        cost = cost_fns.xent
 
         net = Network(OnMNIST.data, eta=eta, lmbd1=lmbda, lmbd2=0.0, mu=0.0, cost=cost)
-        net.add_drop(60, activation=activations.Tanh)
+        net.add_drop(60, activation=act_fns.Tanh)
         net.finalize_architecture()
 
         epochs = 30
@@ -64,13 +64,13 @@ class OnMNIST:
         """Nielsen's architecture"""
         eta = 0.5
         lmbda = 5.0
-        cost = costs.xent
+        cost = cost_fns.xent
         epochs = 30
 
         net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
-        net.add_fc(30, activation=activations.sigmoid)
-        net.finalize_architecture(activation=activations.sigmoid)
+        net.add_fc(30, activation=act_fns.sigmoid)
+        net.finalize_architecture(activation=act_fns.sigmoid)
 
         return net, epochs
 
@@ -79,11 +79,11 @@ class OnMNIST:
         """Misi's architecture"""
         eta = 3.0
         lmbda = 0.0
-        cost = costs.mse
+        cost = cost_fns.mse
 
         net = Network(OnMNIST.data, eta, lmbda, 0.0, 0.0, cost)
 
-        net.add_fc(30, activation=activations.sigmoid)
+        net.add_fc(30, activation=act_fns.sigmoid)
         net.finalize_architecture()
 
         epochs = 5

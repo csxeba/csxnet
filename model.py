@@ -18,26 +18,22 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
 
 import abc
-import warnings
 
 import numpy as np
 
-from .util import activations, costs
+from .util import act_fns, cost_fns
 
 from csxdata.utilities.pure import niceround
 
 
 class NeuralNetworkBase(abc.ABC):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str, fanin=0, outsize=0, N=0):
-
+    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str):
         # Referencing the data wrapper on which we do the learning
         self.data = data
+        self.fanin, self.outsize = data.neurons_required
+
         self.name = name
-        if data is not None:
-            self.N = data.N
-            self.fanin, self.outsize = data.neurons_required
-        else:
-            self.fanin, self.outsize, self.N = fanin, outsize, N
+        self.N = data.N
 
         # Parameters required for SGD
         self.eta = eta
@@ -52,16 +48,19 @@ class NeuralNetworkBase(abc.ABC):
         self.name = ""
 
     @abc.abstractmethod
-    def fit(self, batch_size: int): pass
+    def fit(self, batch_size, epochs): raise NotImplementedError
 
     @abc.abstractmethod
-    def evaluate(self, on: str): pass
+    def _epoch(self, batch_size: int): raise NotImplementedError
 
     @abc.abstractmethod
-    def predict(self, questions: np.ndarray): pass
+    def evaluate(self, on: str): raise NotImplementedError
 
     @abc.abstractmethod
-    def describe(self): pass
+    def predict(self, questions: np.ndarray): raise NotImplementedError
+
+    @abc.abstractmethod
+    def describe(self): raise NotImplementedError
 
 
 class Network(NeuralNetworkBase):
@@ -73,7 +72,7 @@ class Network(NeuralNetworkBase):
         self.m = 0  # Batch size goes here
 
         if isinstance(cost, str):
-            self.cost = costs[cost]
+            self.cost = cost_fns[cost]
         else:
             self.cost = cost
 
@@ -86,7 +85,7 @@ class Network(NeuralNetworkBase):
 
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=activations.tanh):
+    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=act_fns.tanh):
         from .brainforge.layers import Experimental
         fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
@@ -101,7 +100,7 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Pool".format(pool))
         # brain, fanin, fshape, stride, position
 
-    def add_fc(self, neurons, activation=activations.tanh):
+    def add_fc(self, neurons, activation="tanh"):
         from .brainforge.layers import DenseLayer
         inpts = np.prod(self.layers[-1].outshape)
         args = (self, inpts, neurons, len(self.layers), activation)
@@ -109,22 +108,22 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Dense: {}".format(neurons, str(activation)[:4]))
         # brain, inputs, neurons, position, activation
 
-    def add_drop(self, neurons, dropchance=0.25, activation=activations.tanh):
+    def add_drop(self, neurons, dropchance=0.25, activation="tanh"):
         from .brainforge.layers import DropOut
         args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
         self.layers.append(DropOut(*args))
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, time_truncate=5, activation=activations.tanh):
-        from .brainforge.layers import Experimental
+    def add_rec(self, neurons, activation="tanh"):
+        from .brainforge.layers import RLayer
         inpts = np.prod(self.layers[-1].outshape)
-        args = self, inpts, neurons, time_truncate, len(self.layers), activation
-        self.layers.append(Experimental.RLayer(*args))
-        self.architecture.append("{} RecL(time={}): {}".format(neurons, time_truncate, activation[:4]))
+        args = self, inpts, neurons, len(self.layers), activation
+        self.layers.append(RLayer(*args))
+        self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
         # brain, inputs, neurons, time_truncate, position, activation
 
-    def finalize_architecture(self, activation=activations.sigmoid):
+    def finalize_architecture(self, activation="sigmoid"):
         from .brainforge.layers import DenseLayer
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
         self.predictor = DenseLayer(*pargs)
@@ -132,58 +131,24 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Dense: {}".format(self.outsize, str(activation)[:4]))
         self.finalized = True
 
+    def pop(self):
+        self.layers.pop()
+        self.architecture.pop()
+        self.finalized = False
+
     # ---- Methods for model fitting ----
 
     def fit(self, batch_size=20, epochs=10, verbose=1, monitor=()):
 
-        def do_batch(lessons):
-            self.m = lessons[0].shape[0]
-            cst = self._fit(lessons)
-            return cst
+        if not self.finalized:
+            raise RuntimeError("Architecture not finalized!")
 
-        def sanity_check():
-            if not self.finalized:
-                raise RuntimeError("Architecture not finalized!")
-            if self.layers[-1] is not self.predictor:
-                self._insert_predictor()
-
-        def print_progress():
-            tcost, tacc = self.evaluate("testing")
-            tcost = niceround(tcost, 5)
-            tacc = niceround(tacc * 100, 4)
-            print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
-
-        sanity_check()
-        cost = []
         for epoch in range(1, epochs+1):
-            cost += [do_batch(bno, batch) for bno, batch in enumerate(self.data.batchgen(batch_size))]
-            for i, batch in enumerate(self.data.batchgen(batch_size)):
-                cost.append(do_batch(batch))
-                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
-                if verbose:
-                    print("\rEpoch: {}")
-
-            if "acc" in monitor:
-                print_progress()
-            print()
-
-    def learn(self, batch_size=20, verbose=1, monitor=("acc",)):
-
-        def do_batch(batch_no, lessons):
-            self.m = lessons[0].shape[0]
-            cst = self._fit(lessons)
             if verbose:
-                done_percent = int(100 * (((batch_no + 1) * batch_size) / self.data.N))
-                print("\r{}%:\tCost: {}\t "
-                      .format(done_percent, niceround(cst, 5)), end="")
+                print("Epoch {}/{}".format(epoch, epochs))
+            self._epoch(batch_size, verbose, monitor)
 
-            return cst
-
-        def sanity_check():
-            if not self.finalized:
-                raise RuntimeError("Architecture not finalized!")
-            if self.layers[-1] is not self.predictor:
-                self._insert_predictor()
+    def _epoch(self, batch_size=20, verbose=1, monitor=()):
 
         def print_progress():
             tcost, tacc = self.evaluate("testing")
@@ -191,16 +156,18 @@ class Network(NeuralNetworkBase):
             tacc = niceround(tacc * 100, 4)
             print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
 
-        warnings.warn("learn() is deprecated! Please switch to fit()!", DeprecationWarning)
-
-        sanity_check()
-        for bno, batch in enumerate(self.data.batchgen(batch_size)):
-            do_batch(bno, batch)
-        if "acc" in monitor:
-            print_progress()
+        costs = []
+        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size)):
+            costs.append(self._fit_batch(inputs, targets))
+            if verbose:
+                done_percent = int(100 * (((bno + 1) * batch_size) / self.N))
+                print("\r{}%:\tCost: {}\t ".format(done_percent, niceround(np.mean(costs), 5)), end="")
+                if "acc" in monitor:
+                    print_progress()
         print()
+        return costs
 
-    def _fit(self, learning_table):
+    def _fit_batch(self, X, y):
         """
         This method coordinates the fitting of parameters (learning and encoding).
 
@@ -210,51 +177,47 @@ class Network(NeuralNetworkBase):
         layer computes the error of the previous layer and the
         backprop methods return with the computed error array
 
-        :param learning_table: tuple of 2 numpy arrays: (stimuli, _embedments)
-        :return: None
+        :param X: NumPy array of stimuli
+        :param y: NumPy array of (embedded) targets
+        :return: cost calculated on the current batch
         """
 
-        questions, targets = learning_table
+        self.m = X.shape[0]
+
         # Forward pass
         for layer in self.layers:
-            questions = layer.feedforward(questions)
+            X = layer.feedforward(X)
         # Calculate the cost derivative
-        last = self.layers[-1]
-        last.receive_error(self.cost.derivative(last.output, targets))
+        self.layers[-1].receive_error(self.cost.derivative(self.layers[-1].output, y))
         # Backpropagate the errors
         for layer, prev_layer in zip(self.layers[-1:0:-1], self.layers[-2::-1]):
             prev_layer.receive_error(layer.backpropagation())
-        # Update weights
-        for layer in self.layers[1:]:
             layer.weight_update()
-        return self.cost(last.output, targets)
+        return self.cost(self.layers[-1].output, y)
 
     # ---- Methods for forward propagation ----
 
-    def predict(self, questions):
+    def predict(self, X):
         if self.data.type == "classification":
-            return self.predict_class(questions)
+            return self.predict_class(X)
         elif self.data.type == "regression":
-            return self.predict_raw(questions)
+            return self.predict_raw(X)
         else:
             raise TypeError("Unsupported Dataframe Type")
 
-    def predict_class(self, questions):
+    def predict_class(self, X):
         """
         Coordinates prediction (feedforwarding outside the learning phase)
 
-        The layerwise implementations of <_evaluate> don't have any side-effects
-        so prediction is a candidate for parallelization.
-
-        :param questions: numpy.ndarray representing a batch of inputs
+        :param X: numpy.ndarray representing a batch of inputs
         :return: numpy.ndarray: 1D array of predictions
         """
-        return np.argmax(self.predict_raw(questions), axis=1)
+        return np.argmax(self.predict_raw(X), axis=1)
 
-    def predict_raw(self, questions):
+    def predict_raw(self, X):
         for layer in self.layers:
-            questions = layer.predict(questions)
-        return questions
+            X = layer.predict(X)
+        return X
 
     def evaluate(self, on="testing", accuracy=True):
         """
@@ -265,29 +228,16 @@ class Network(NeuralNetworkBase):
         :return: rate of right answers
         """
 
-        questions, targets = self.data.table(on, shuff=True, m=self.data.n_testing)
-        predictions = self.predict_raw(questions)
-        cost = self.cost(predictions, targets)
+        X, y = self.data.table(on, shuff=True, m=self.data.n_testing)
+        predictions = self.predict_raw(X)
+        cost = self.cost(predictions, y)
         if accuracy:
             pred_classes = np.argmax(predictions, axis=1)
-            trgt_classes = np.argmax(targets, axis=1)
+            trgt_classes = np.argmax(y, axis=1)
             eq = np.equal(pred_classes, trgt_classes)
             acc = np.average(eq)
             return cost, acc
         return cost
-
-    # ---- Private helper methods ----
-
-    def _insert_encoder(self):
-        if not isinstance(self.cost, costs["mse"]) or self.cost is not costs["mse"]:
-            print("Cost function not supported in autoencoding! Falling back to MSE!")
-            self.cost = costs["mse"]
-        self.layers[-1] = self.encoder
-        print("Inserted encoder as output layer!")
-
-    def _insert_predictor(self):
-        self.layers[-1] = self.predictor
-        print("Inserted predictor as output layer!")
 
     # ---- Some utilities ----
 
@@ -321,7 +271,7 @@ class Network(NeuralNetworkBase):
     def dream(self, matrix):
         """Reverse-feedforward"""
         assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
-        assert all([(isinstance(layer.activation, activations.sigmoid)) or (layer.activation is activations.sigmoid)
+        assert all([(isinstance(layer.activation, act_fns.sigmoid)) or (layer.activation is act_fns.sigmoid)
                     for layer in self.layers[1:]]), "Only Sigmoid is supported!"
 
         from csxdata.utilities.nputils import logit
@@ -344,7 +294,7 @@ class FeedForwardNet(Network):
     """
 
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
-                 cost=costs.xent, activation=activations.tanh):
+                 cost=cost_fns.xent, activation=act_fns.tanh):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
         if isinstance(hiddens, int):
@@ -354,4 +304,4 @@ class FeedForwardNet(Network):
 
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=activation)
-        self.finalize_architecture(activation=activations.sigmoid)
+        self.finalize_architecture(activation=act_fns.sigmoid)

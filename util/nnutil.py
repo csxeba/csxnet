@@ -110,7 +110,7 @@ class _ReLU(_ActivationFunctionBase):
 class _SoftMax(_ActivationFunctionBase):
 
     def __call__(self, Z):
-        return np.divide(Z, np.sum(Z, axis=0))
+        return Z / np.sum(Z, axis=1)[:, None]
 
     def __str__(self): return "softmax"
 
@@ -235,9 +235,9 @@ tanh = _Tanh()
 linear = _Linear()
 relu = _ReLU()
 softmax = _SoftMax()
-activations = _Activation()
+act_fns = _Activation()
 
 mse = _MSE()
 xent = _Xent()
 nll = _NLL()
-costs = _Cost()
+cost_fns = _Cost()
