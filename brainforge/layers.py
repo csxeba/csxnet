@@ -133,7 +133,7 @@ class DenseLayer(_FFLayer):
                           neurons=neurons, position=position,
                           activation=activation)
 
-        self.weights = white(inputs, neurons)
+        self.weights = white(int(inputs), int(neurons))
         self.gradients = np.zeros_like(self.weights)
         self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
