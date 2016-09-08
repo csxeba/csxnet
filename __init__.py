@@ -1,1 +1,1 @@
-from .model import Network
+from .ann import Network

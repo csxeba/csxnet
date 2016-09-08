@@ -1,6 +1,6 @@
 from ..util import act_fns, cost_fns
 
-from csxnet.model import Network
+from csxnet.ann import Network
 from csxdata.frames import CData
 
 
