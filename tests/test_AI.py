@@ -1,4 +1,4 @@
-from csxnet.model import Network
+from csxnet.ann import Network
 
 from csxdata import CData, roots, log
 from csxdata.utilities.parsers import mnist_tolearningtable
@@ -9,13 +9,13 @@ logstring = ""
 
 def get_mnist_data(path):
     data = CData(mnist_tolearningtable(path))
-    data.learning += 1e-6
+    data.transformation = "std"
     return data
 
 
 def get_dense_network(data):
     nw = Network(data, 0.5, 0.0, 5.0, 0.0, cost="xent")
-    nw.add_fc(60, activation="sigmoid")
+    nw.add_fc(60, activation="tanh")
     nw.finalize_architecture(activation="sigmoid")
     return nw
 
@@ -25,7 +25,7 @@ def test_ann():
     dsc = net.describe()
     log(dsc)
     print(dsc)
-    net.fit(batch_size=20, epochs=30, verbose=1, monitor=["acc"])
+    net.fit(batch_size=50, epochs=30, verbose=1, monitor=["acc"])
 
 
 if __name__ == '__main__':
