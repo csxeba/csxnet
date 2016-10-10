@@ -470,6 +470,7 @@ class LSTM(Recurrent):
             """
             # Calculate the gate activations
             preact = z.dot(self.weights)
+            # TODO: rewrite with np.split!!!
             f, i, o = sigmoid(preact[:self.G]).reshape(self.Z, 3, self.neurons).transpose(1, 0, 2)
             # Calculate the cell state candidate
             candidate = tanh(preact[self.G:])
