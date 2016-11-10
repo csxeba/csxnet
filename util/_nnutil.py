@@ -110,9 +110,11 @@ class _ReLU(_ActivationFunctionBase):
 class _SoftMax(_ActivationFunctionBase):
 
     def __call__(self, Z):
-        return Z / np.sum(Z, axis=1)[:, None]
+        eZ = np.exp(Z)
+        return eZ / np.sum(eZ, axis=1)[:, None]
 
-    def __str__(self): return "softmax"
+    def __str__(self):
+        return "softmax"
 
     @staticmethod
     def derivative(A):

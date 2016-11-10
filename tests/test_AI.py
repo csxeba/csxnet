@@ -8,14 +8,14 @@ logstring = ""
 
 
 def get_mnist_data(path):
-    data = CData(mnist_tolearningtable(path))
+    data = CData(mnist_tolearningtable(path, fold=False))
     data.transformation = "std"
     return data
 
 
 def get_dense_network(data):
     nw = Network(data, 0.5, 0.0, 5.0, 0.0, cost="xent")
-    nw.add_fc(60, activation="tanh")
+    nw.add_fc(120, activation="tanh")
     nw.finalize_architecture(activation="sigmoid")
     return nw
 
@@ -25,7 +25,7 @@ def test_ann():
     dsc = net.describe()
     log(dsc)
     print(dsc)
-    net.fit(batch_size=50, epochs=30, verbose=1, monitor=["acc"])
+    net.fit(batch_size=20, epochs=30, verbose=1, monitor=["acc"])
 
 
 if __name__ == '__main__':

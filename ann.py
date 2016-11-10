@@ -162,8 +162,8 @@ class Network(NeuralNetworkBase):
             if verbose:
                 done_percent = int(100 * (((bno + 1) * batch_size) / self.N))
                 print("\r{}%:\tCost: {}\t ".format(done_percent, niceround(np.mean(costs), 5)), end="")
-                if "acc" in monitor:
-                    print_progress()
+        if "acc" in monitor:
+            print_progress()
         print()
         return costs
 

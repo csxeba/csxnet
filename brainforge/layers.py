@@ -138,8 +138,6 @@ class DenseLayer(_FFLayer):
         self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
         self.N = 0  # current batch size
-        # print("<FF", self.activation, "layer> created with input size {} and output size {} @ position {}"
-        #       .format(inputs, neurons, position))
 
     def feedforward(self, questions):
         """
