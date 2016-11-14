@@ -104,7 +104,8 @@ class _ReLU(_ActivationFunctionBase):
 
     @staticmethod
     def derivative(A):
-        return np.greater(0.0, A).astype("float32")
+        d = np.greater(A, 0.0).astype("float32")
+        return d
 
 
 class _SoftMax(_ActivationFunctionBase):
@@ -182,13 +183,13 @@ class _MSE(_CostFnBase):
 class _Xent(_CostFnBase):
 
     def __call__(self, a: np.ndarray, y: np.ndarray):
-        return -np.sum(y * np.log(a) + (1 - y) * np.log(1 - a)) / a.shape[0]
+        return -np.sum(y * np.log(a) + (1 - y) * np.log(1 - a))
 
     @staticmethod
     def derivative(outputs, targets):
-        divtop = np.subtract(targets, outputs)
-        divbot = np.subtract(outputs, 1.) * outputs
-        d_xent = np.divide(divtop, divbot)
+        enum = np.subtract(targets, outputs)
+        denom = np.subtract(outputs, 1.) * outputs
+        d_xent = np.divide(enum, denom)
         return d_xent
 
     def __str__(self):

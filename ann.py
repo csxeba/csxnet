@@ -184,16 +184,26 @@ class Network(NeuralNetworkBase):
 
         self.m = X.shape[0]
 
-        # Forward pass
+        self._forward_pass(X)
+        self._backward_pass(y)
+        self._parameter_update()
+
+        endcost = self.cost(self.output, y)
+        return endcost
+
+    def _forward_pass(self, X):
+        self.m = X.shape[0]
         for layer in self.layers:
             X = layer.feedforward(X)
-        # Calculate the cost derivative
+
+    def _backward_pass(self, y):
         self.layers[-1].receive_error(self.cost.derivative(self.layers[-1].output, y))
-        # Backpropagate the errors
         for layer, prev_layer in zip(self.layers[-1:0:-1], self.layers[-2::-1]):
             prev_layer.receive_error(layer.backpropagation())
+
+    def _parameter_update(self):
+        for layer in self.layers[-1:0:-1]:
             layer.weight_update()
-        return self.cost(self.layers[-1].output, y)
 
     # ---- Methods for forward propagation ----
 
@@ -215,6 +225,7 @@ class Network(NeuralNetworkBase):
         return np.argmax(self.predict_raw(X), axis=1)
 
     def predict_raw(self, X):
+        """Make predictions given an input matrix"""
         for layer in self.layers:
             X = layer.predict(X)
         return X
@@ -225,7 +236,7 @@ class Network(NeuralNetworkBase):
 
         :param on: cross-validation is implemented, dataset can be chosen here
         :param accuracy: if True, the class prediction accuracy is calculated.
-        :return: rate of right answers
+        :return: cost and rate of right answers
         """
 
         X, y = self.data.table(on, shuff=True, m=self.data.n_testing)
@@ -240,6 +251,10 @@ class Network(NeuralNetworkBase):
         return cost
 
     # ---- Some utilities ----
+
+    @property
+    def output(self):
+        return self.layers[-1].output
 
     def save(self, path):
         import pickle
@@ -294,14 +309,86 @@ class FeedForwardNet(Network):
     """
 
     def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
-                 cost=cost_fns.xent, activation=act_fns.tanh):
+                 cost="xent", activation="tanh", output_activation="sigmoid"):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
         if isinstance(hiddens, int):
             hiddens = (hiddens,)
 
-        self.layout = tuple(list(self.layers[0].outshape) + list(hiddens) + [self.outsize])
+        self.layout = tuple([self.layers[0].outshape] + list(hiddens) + [self.outsize])
 
         for neu in hiddens:
-            self.add_fc(neurons=neu, activation=activation)
-        self.finalize_architecture(activation=act_fns.sigmoid)
+            self.add_fc(neurons=neu, activation=act_fns[activation])
+        self.finalize_architecture(activation=act_fns[output_activation])
+
+    def numerical_gradients(self, X, y, epsilon=1e-5):
+
+        ws = self.weights
+
+        numgrads = np.zeros_like(ws)
+        perturb = np.copy(numgrads)
+
+        for i in range(len(numgrads)):
+            perturb[i] += epsilon
+
+            self.weights = ws + perturb
+            cost1 = self.cost(self.predict_raw(X), y)
+            self.weights = ws - perturb
+            cost2 = self.cost(self.predict_raw(X), y)
+
+            numgrads[i] = (cost1 - cost2)
+            perturb[i] = 0.0
+
+        numgrads /= (2 * epsilon)
+        self.weights = ws
+
+        return numgrads
+
+    def analytical_gradients(self, X, y):
+        ws = self.weights
+        anagrads = np.zeros_like(ws)
+
+        self._forward_pass(X)
+        self._backward_pass(y)
+
+        start = 0
+        for layer in self.layers[1:]:
+            end = start + np.prod(layer.weights.shape)
+            anagrads[start:end] = layer.gradients.ravel()
+            start += end
+
+        return anagrads
+
+    def gradient_check(self, X, y, fold=False):
+        norm = np.linalg.norm
+        numeric = self.numerical_gradients(X, y)
+        analytic = self.analytical_gradients(X, y)
+        diff = analytic - numeric
+
+        relative_error = norm(diff) / max(norm(numeric), norm(analytic))
+
+        if fold:
+            outputs = []
+            start = 0
+            for layer in self.layers[1:]:
+                end = start + np.prod(layer.weights.shape)
+                outputs.append(diff[start:end].reshape(layer.weights.shape))
+                start += end
+            return relative_error, outputs
+
+        return relative_error
+
+    @property
+    def weights(self):
+        weights = np.array([])
+        for layer in self.layers[1:]:
+            weights = np.concatenate((weights, layer.weights.ravel()))
+        return weights
+
+    @weights.setter
+    def weights(self, ws):
+        start = 0
+        for layer in self.layers[1:]:
+            end = start + np.prod(layer.weights.shape)
+            layer.weights = ws[start:end].reshape(layer.weights.shape)
+            start += end

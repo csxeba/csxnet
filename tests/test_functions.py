@@ -20,9 +20,5 @@ class TestSoftmax(unittest.TestCase):
 
         self.assertTrue(np.allclose(output, self.rsmaxed))
 
-    def test_softmax_derivative(self):
-        gradients = self.softmax.derivative(self.rsmaxed)
-        print(gradients)
-
 if __name__ == '__main__':
     unittest.main()
