@@ -53,7 +53,7 @@ def white(fanin, *dims):
 class _ActivationFunctionBase(abc.ABC):
     def __call__(self, Z: np.ndarray): pass
 
-    def __str__(self): return ""
+    def __str__(self): raise NotImplementedError
 
     @staticmethod
     def derivative(Z: np.ndarray): pass
@@ -104,20 +104,22 @@ class _ReLU(_ActivationFunctionBase):
 
     @staticmethod
     def derivative(A):
-        return np.greater(0.0, A).astype("float32")
+        d = np.greater(A, 0.0).astype("float32")
+        return d
 
 
 class _SoftMax(_ActivationFunctionBase):
 
     def __call__(self, Z):
-        return Z / np.sum(Z, axis=1)[:, None]
+        eZ = np.exp(Z)
+        return eZ / np.sum(eZ, axis=1, keepdims=True)
 
     def __str__(self): return "softmax"
 
     @staticmethod
-    def derivative(A):
+    def derivative(A: np.ndarray):
         # This is the negative of the outer product of the last axis with itself
-        J = - A[:, :, None] * A[:, None, :]  # given by -a_i*a_j, where i =/= j
+        J = A[..., None] * A[:, None, :]  # given by -a_i*a_j, where i =/= j
         iy, ix = np.diag_indices_from(J[0])
         J[:, iy, ix] = A * (1. - A)  # given by a_i(1 - a_j), where i = j
         return J.sum(axis=1)  # sum for each sample
@@ -181,13 +183,13 @@ class _MSE(_CostFnBase):
 class _Xent(_CostFnBase):
 
     def __call__(self, a: np.ndarray, y: np.ndarray):
-        return -np.sum(y * np.log(a) + (1 - y) * np.log(1 - a)) / a.shape[0]
+        return -np.sum(y * np.log(a) + (1 - y) * np.log(1 - a))
 
     @staticmethod
     def derivative(outputs, targets):
-        divtop = np.subtract(targets, outputs)
-        divbot = np.subtract(outputs, 1.) * outputs
-        d_xent = np.divide(divtop, divbot)
+        enum = np.subtract(targets, outputs)
+        denom = np.subtract(outputs, 1.) * outputs
+        d_xent = np.divide(enum, denom)
         return d_xent
 
     def __str__(self):

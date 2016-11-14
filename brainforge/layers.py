@@ -1,4 +1,5 @@
 import abc
+import warnings
 
 import numpy as np
 from scipy.ndimage import convolve
@@ -138,8 +139,6 @@ class DenseLayer(_FFLayer):
         self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
         self.N = 0  # current batch size
-        # print("<FF", self.activation, "layer> created with input size {} and output size {} @ position {}"
-        #       .format(inputs, neurons, position))
 
     def feedforward(self, questions):
         """
@@ -172,10 +171,11 @@ class DenseLayer(_FFLayer):
         :return: numpy.ndarray
         """
         if self.brain.mu:
-            self.velocity += self.gradients
+            self.velocity = self.brain.mu
+            self.velocity += self.gradients * (self.brain.eta / self.brain.m)
         # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
-        self.gradients = np.dot(self.inputs.T, self.error) / self.brain.m
-        # (dC / dW) = error * (dZ / dA_), where A_ is the previous output
+        self.gradients = np.dot(self.inputs.T, self.error)
+        # (dC / dX) = error * (dZ / dA_), where A_ is the previous layer's output
         return np.dot(self.error, self.weights.T)
 
     def weight_update(self):
@@ -195,17 +195,18 @@ class DenseLayer(_FFLayer):
                 self.weights -= l1 * np.sign(self.weights)
 
         def descend_on_velocity():
-            np.subtract(self.weights, self.brain.mu * (self.velocity + self.gradients) * self.brain.eta,
+            np.subtract(self.weights, self.velocity + self.gradients * eta,
                         out=self.weights)
 
         def descend_on_gradient():
-            np.subtract(self.weights, self.gradients * self.brain.eta,
+            np.subtract(self.weights, self.gradients * eta,
                         out=self.weights)
 
         def modify_biases():
-            np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
+            np.subtract(self.biases, np.mean(self.error, axis=0) * eta,
                         out=self.biases)
 
+        eta = self.brain.eta / self.brain.m
         apply_weight_decay()
         if self.brain.mu:
             descend_on_velocity()
@@ -294,6 +295,11 @@ class InputLayer(_LayerBase):
     @property
     def outshape(self):
         return self.neurons
+
+    @property
+    def weights(self):
+        warnings.warn("Queried weights of an InputLayer!", RuntimeWarning)
+        return None
 
 
 class Recurrent(_FFLayer):
@@ -470,6 +476,7 @@ class LSTM(Recurrent):
             """
             # Calculate the gate activations
             preact = z.dot(self.weights)
+            # TODO: rewrite with np.split!!!
             f, i, o = sigmoid(preact[:self.G]).reshape(self.Z, 3, self.neurons).transpose(1, 0, 2)
             # Calculate the cell state candidate
             candidate = tanh(preact[self.G:])
