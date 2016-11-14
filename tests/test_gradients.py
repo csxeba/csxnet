@@ -1,10 +1,8 @@
 import unittest
 
-import numpy as np
-
-from csxnet.ann import FeedForwardNet
 from csxdata import CData, roots
 from csxdata.utilities.parsers import mnist_tolearningtable
+from csxnet.ann import FeedForwardNet
 
 
 class TestFeedForwardNet(unittest.TestCase):

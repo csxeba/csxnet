@@ -23,7 +23,7 @@ import numpy as np
 
 from .util import act_fns, cost_fns
 
-from csxdata.utilities.pure import niceround
+from csxdata.utilities.misc import niceround
 
 
 class NeuralNetworkBase(abc.ABC):
@@ -117,7 +117,7 @@ class Network(NeuralNetworkBase):
 
     def add_rec(self, neurons, activation="tanh"):
         from .brainforge.layers import RLayer
-        inpts = np.prod(self.layers[-1].outshape)
+        inpts = self.layers[-1].outshape[-1]
         args = self, inpts, neurons, len(self.layers), activation
         self.layers.append(RLayer(*args))
         self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
@@ -188,7 +188,7 @@ class Network(NeuralNetworkBase):
         self._backward_pass(y)
         self._parameter_update()
 
-        endcost = self.cost(self.output, y)
+        endcost = self.cost(self.output, y) / self.m
         return endcost
 
     def _forward_pass(self, X):
@@ -211,6 +211,8 @@ class Network(NeuralNetworkBase):
         if self.data.type == "classification":
             return self.predict_class(X)
         elif self.data.type == "regression":
+            return self.predict_raw(X)
+        elif self.data.type == "sequence":
             return self.predict_raw(X)
         else:
             raise TypeError("Unsupported Dataframe Type")
@@ -241,7 +243,7 @@ class Network(NeuralNetworkBase):
 
         X, y = self.data.table(on, shuff=True, m=self.data.n_testing)
         predictions = self.predict_raw(X)
-        cost = self.cost(predictions, y)
+        cost = self.cost(predictions, y) / y.shape[0]
         if accuracy:
             pred_classes = np.argmax(predictions, axis=1)
             trgt_classes = np.argmax(y, axis=1)
@@ -282,20 +284,6 @@ class Network(NeuralNetworkBase):
             print(chain)
         else:
             return chain
-
-    def dream(self, matrix):
-        """Reverse-feedforward"""
-        assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
-        assert all([(isinstance(layer.activation, act_fns.sigmoid)) or (layer.activation is act_fns.sigmoid)
-                    for layer in self.layers[1:]]), "Only Sigmoid is supported!"
-
-        from csxdata.utilities.nputils import logit
-
-        print("Warning! Network.dream() is highly experimental and possibly buggy!")
-
-        for layer in self.layers[-1:0:-1]:
-            matrix = logit(matrix.dot(layer.weights.T))
-        return matrix
 
 
 class FeedForwardNet(Network):

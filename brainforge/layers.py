@@ -9,7 +9,7 @@ from ..util import sigmoid, tanh
 from ..util import l1term, l2term, outshape, calcsteps, white
 
 from csxdata import floatX
-from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
+from csxdata.utilities.vectorops import maxpool, ravel_to_matrix as rtm
 
 
 class _LayerBase(abc.ABC):
@@ -307,7 +307,7 @@ class Recurrent(_FFLayer):
     def __init__(self, brain, inputs, neurons, position, activation, return_seq=False):
         _FFLayer.__init__(self, brain, neurons, position, activation)
         self.Z = inputs + neurons
-        self.cache = self.Cache(inputs[-1], neurons)
+        self.cache = self.Cache(inputs, neurons)
         self.time = 0
         self.return_seq = return_seq
 
@@ -552,18 +552,16 @@ class RLayer(Recurrent):
         self.grad_b = np.zeros_like(self.biases)
 
     def feedforward(self, questions: np.ndarray):
-        questions = questions.transpose(1, 0, 2)
-        self.time = questions.shape[0]
+        self.inputs = questions.transpose(1, 0, 2)
+        self.time = self.inputs.shape[0]
         self.cache.reset(batch_size=self.brain.m, time=self.time)
 
-        def timestep(X, h):
-            Z = np.concatenate((X, h))
-            h = tanh(Z.dot(self.weights) + self.biases)
-            return h
+        def timestep(Z):
+            return tanh(Z.dot(self.weights) + self.biases)
 
         for t in range(self.time):
-            self.cache["Z"][t] = np.concatenate((questions[t], self.cache["outputs"][t]))
-            self.cache["outputs"][t] = timestep(self.cache["Z"][t], self.cache["outputs"][t])
+            self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t]), axis=1)
+            self.cache["outputs"][t] = timestep(self.cache["Z"][t])
 
         if self.return_seq:
             return self.cache["outputs"].transpose(1, 0, 2)
@@ -584,10 +582,10 @@ class RLayer(Recurrent):
         deltaY = np.zeros_like(delta_output)
         deltaX = np.zeros_like(self.inputs)
 
-        for time in range(self.time, -1, -1):
+        for time in range(self.time-1, -1, -1):
             deltaY += delta_output[time]
             gradW, deltaZ = bptt_timestep(time, deltaY)
-            deltaX[time], deltaY = deltaZ[:self.inputs], deltaZ[self.inputs:]
+            deltaX[time], deltaY = deltaZ[:, :-self.neurons], deltaZ[:, -self.neurons:]
 
             self.grad_w += gradW
 
@@ -597,7 +595,22 @@ class RLayer(Recurrent):
         self.weights -= self.brain.eta * self.grad_w
 
     def predict(self, stimuli: np.ndarray) -> np.ndarray:
-        pass
+        stimuli = stimuli.transpose(1, 0, 2)
+        time, m = stimuli.shape[:2]
+
+        def timestep(x, h):
+            Z = np.concatenate((x, h), axis=1)
+            h = self.activation(Z.dot(self.weights) + self.biases)
+            return h
+
+        outputs = np.zeros((time, m, self.neurons))
+        for t in range(time):
+            outputs[t] = timestep(stimuli[t], outputs[t-1])
+
+        if self.return_seq:
+            return outputs.transpose(1, 0, 2)
+        else:
+            return outputs[-1]
 
     def shuffle(self) -> None:
         pass
