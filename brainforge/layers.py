@@ -2,7 +2,6 @@ import abc
 import warnings
 
 import numpy as np
-from scipy.ndimage import convolve
 
 from ..util import act_fns
 from ..util import sigmoid, tanh
@@ -165,7 +164,7 @@ class DenseLayer(_FFLayer):
     def backpropagation(self):
         """
         Backpropagates the errors.
-        Calculates gradients of the weights, then
+        Calculates nabla_w of the weights, then
         returns the previous layer's error.
 
         :return: numpy.ndarray
@@ -181,7 +180,7 @@ class DenseLayer(_FFLayer):
     def weight_update(self):
         """
         Performs Stochastic Gradient Descent by subtracting a portion of the
-        calculated gradients from the weights and biases.
+        calculated nabla_w from the weights and biases.
 
         :return: None
         """
@@ -317,7 +316,7 @@ class Recurrent(_FFLayer):
 
     @abc.abstractmethod
     def shuffle(self) -> None:
-        pass
+        raise NotImplementedError
 
     def receive_error(self, error_matrix: np.ndarray) -> None:
         self.error = np.zeros((self.time, self.brain.m, self.neurons))
@@ -329,15 +328,15 @@ class Recurrent(_FFLayer):
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def weight_update(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
     def backpropagation(self) -> np.ndarray:
-        pass
+        raise NotImplementedError
 
     @property
     def outshape(self):
@@ -539,17 +538,19 @@ class LSTM(Recurrent):
                     out=self.biases)
 
     def shuffle(self):
-        pass
+        self.weights = np.random.randn(self.weights.shape)
+        self.biases = np.zeros_like(self.biases, dtype=floatX)
 
 
 class RLayer(Recurrent):
+
     def __init__(self, brain, inputs, neurons, position, activation):
         Recurrent.__init__(self, brain, inputs, neurons, position, activation)
 
         self.weights = white(self.Z, self.neurons)
-        self.biases = white(self.neurons)
-        self.grad_w = np.zeros_like(self.weights)
-        self.grad_b = np.zeros_like(self.biases)
+        self.biases = np.zeros((self.neurons,), dtype=floatX)
+        self.nabla_w = np.zeros_like(self.weights)
+        self.velocity = np.zeros_like(self.weights)
 
     def feedforward(self, questions: np.ndarray):
         self.inputs = questions.transpose(1, 0, 2)
@@ -557,7 +558,7 @@ class RLayer(Recurrent):
         self.cache.reset(batch_size=self.brain.m, time=self.time)
 
         def timestep(Z):
-            return tanh(Z.dot(self.weights) + self.biases)
+            return self.activation(Z.dot(self.weights) + self.biases)
 
         for t in range(self.time):
             self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t]), axis=1)
@@ -570,29 +571,38 @@ class RLayer(Recurrent):
 
     def backpropagation(self):
         """Backpropagation through time (BPTT)"""
-        self.grad_w = np.zeros_like(self.weights)
 
-        def bptt_timestep(t, dy):
-            gW = self.cache["Z"][t].T.dot(dy)
-            dZ = dy.dot(self.weights.T)
-            return gW, dZ
+        def bptt_timestep(t, dY, delta):
+            """
 
-        self.grad_w = np.zeros_like(self.weights)
-        delta_output = self.error[-1]
-        deltaY = np.zeros_like(delta_output)
+            :param t: the timestep indicator
+            :param dY: dC/dY_t -> gradient from the next layer @ timestep <t>
+            :param delta: dC/dY_t+1 -> gradient flowing backwards to timestep <t>
+
+            :return: gW: dC/dW @ timestep <t>; dX dC/dX_{t}; delta: gradient flowing backwards
+            """
+            delta += dY
+            gW = self.cache["Z"][t].T.dot(delta)
+            dZ = delta.dot(self.weights.T)
+            dX = dZ[:, :-self.neurons]
+            delta = dZ[:, -self.neurons:] * self.activation.derivative(self.cache["outputs"][t])
+            return gW, dX, delta
+
+        # gradient of the cost wrt the weights: dC/dW
+        self.nabla_w = np.zeros_like(self.weights)
+        # the gradient flowing backwards in time
+        gradient = np.zeros_like(self.error[-1])
+        # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
         deltaX = np.zeros_like(self.inputs)
 
         for time in range(self.time-1, -1, -1):
-            deltaY += delta_output[time]
-            gradW, deltaZ = bptt_timestep(time, deltaY)
-            deltaX[time], deltaY = deltaZ[:, :-self.neurons], deltaZ[:, -self.neurons:]
-
-            self.grad_w += gradW
+            gradW, deltaX[time], gradient = bptt_timestep(time, self.error[time], gradient)
+            self.nabla_w += gradW
 
         return deltaX.transpose(1, 0, 2)
 
     def weight_update(self):
-        self.weights -= self.brain.eta * self.grad_w
+        self.weights -= self.brain.eta * self.nabla_w
 
     def predict(self, stimuli: np.ndarray) -> np.ndarray:
         stimuli = stimuli.transpose(1, 0, 2)
@@ -612,8 +622,18 @@ class RLayer(Recurrent):
         else:
             return outputs[-1]
 
+    def receive_error(self, error_matrix: np.ndarray):
+        delta = error_matrix * self.activation.derivative(self.output)
+
+        if self.return_seq:
+            self.error = delta.transpose(1, 0, 2)
+        else:
+            self.error = np.zeros((self.time, self.brain.m, self.neurons), dtype=floatX)
+            self.error[-1] += delta
+
     def shuffle(self) -> None:
-        pass
+        self.weights = np.random.randn(self.weights.shape)
+        self.biases = np.zeros_like(self.biases, dtype=floatX)
 
 
 class Experimental:
@@ -731,6 +751,9 @@ class Experimental:
             print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
                   .format(self.inshape, self.outshape, position))
 
+            from scipy import convolve
+            self.convop = convolve
+
         def feedforward(self, questions):
             self.inputs = questions
             exc = convolve(self.inputs, self.filters, mode="valid")
@@ -819,7 +842,7 @@ class Experimental:
 
         def old_weight_update(self):
             """
-            Updates convolutional filter weights with the calculated gradients.
+            Updates convolutional filter weights with the calculated nabla_w.
 
             :return: None
             """
