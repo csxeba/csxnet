@@ -550,6 +550,7 @@ class RLayer(Recurrent):
         self.weights = white(self.Z, self.neurons)
         self.biases = np.zeros((self.neurons,), dtype=floatX)
         self.nabla_w = np.zeros_like(self.weights)
+        self.nabla_b = np.zeros_like(self.biases)
         self.velocity = np.zeros_like(self.weights)
 
     def feedforward(self, questions: np.ndarray):
@@ -590,6 +591,8 @@ class RLayer(Recurrent):
 
         # gradient of the cost wrt the weights: dC/dW
         self.nabla_w = np.zeros_like(self.weights)
+        # gradient of the cost wrt to biases: dC/db
+        self.nabla_b = self.error[-1].sum(axis=0)
         # the gradient flowing backwards in time
         gradient = np.zeros_like(self.error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
@@ -598,11 +601,21 @@ class RLayer(Recurrent):
         for time in range(self.time-1, -1, -1):
             gradW, deltaX[time], gradient = bptt_timestep(time, self.error[time], gradient)
             self.nabla_w += gradW
+            self.nabla_b += gradient.sum(axis=0)
 
         return deltaX.transpose(1, 0, 2)
 
     def weight_update(self):
-        self.weights -= self.brain.eta * self.nabla_w
+        eta = self.brain.eta / self.brain.m
+
+        if self.brain.mu:
+            self.velocity *= self.brain.mu
+            self.velocity += self.nabla_w * eta
+            self.weights -= self.velocity
+            self.biases -= eta * self.nabla_b
+        else:
+            self.weights -= eta * self.nabla_w
+            self.biases -= eta * self.nabla_b
 
     def predict(self, stimuli: np.ndarray) -> np.ndarray:
         stimuli = stimuli.transpose(1, 0, 2)
