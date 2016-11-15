@@ -21,7 +21,16 @@ def build_network(data: Sequence):
 
 
 def xperiment():
+
+    def perform_gradient_checking():
+        from csxnet.util import gradient_check
+
+        net.fit(20, 1, verbose=0)
+        gradient_check(net, *net.data.table("testing", m=1000), display=False)
+
     net = build_network(pull_petofi_data())
+    if not perform_gradient_checking():
+        return
 
     initcost, initacc = net.evaluate()
     print("Initial cost: {} acc: {}".format(initcost, initacc))

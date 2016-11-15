@@ -21,9 +21,10 @@ import abc
 
 import numpy as np
 
-from .util import act_fns, cost_fns
-
 from csxdata.utilities.misc import niceround
+
+from .brainforge.layers import InputLayer
+from .util import act_fns, cost_fns
 
 
 class NeuralNetworkBase(abc.ABC):
@@ -64,8 +65,8 @@ class NeuralNetworkBase(abc.ABC):
 
 
 class Network(NeuralNetworkBase):
+
     def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost, name=""):
-        from .brainforge.layers import InputLayer
 
         NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, name)
 
@@ -125,6 +126,8 @@ class Network(NeuralNetworkBase):
 
     def finalize_architecture(self, activation="sigmoid"):
         from .brainforge.layers import DenseLayer
+        if self.finalized:
+            self.pop()
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
         self.predictor = DenseLayer(*pargs)
         self.layers.append(self.predictor)
@@ -160,8 +163,8 @@ class Network(NeuralNetworkBase):
         for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size)):
             costs.append(self._fit_batch(inputs, targets))
             if verbose:
-                done_percent = int(100 * (((bno + 1) * batch_size) / self.N))
-                print("\r{}%:\tCost: {}\t ".format(done_percent, niceround(np.mean(costs), 5)), end="")
+                done = (bno * batch_size) / self.N
+                print("\rDone: {0:>7.2%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
         if "acc" in monitor:
             print_progress()
         print()
@@ -254,10 +257,6 @@ class Network(NeuralNetworkBase):
 
     # ---- Some utilities ----
 
-    @property
-    def output(self):
-        return self.layers[-1].output
-
     def save(self, path):
         import pickle
 
@@ -285,6 +284,33 @@ class Network(NeuralNetworkBase):
         else:
             return chain
 
+    def get_weights(self, unfold=True):
+        ws = [layer.get_weights(unfold=unfold) for layer in self.layers]
+        return np.concatenate(ws[1:]) if unfold else ws
+
+    def set_weights(self, ws, fold=True):
+        if fold:
+            start = 0
+            for layer in self.layers[1:]:
+                end = start + np.prod(layer.weights.shape)
+                layer.set_weights(ws[start:end])
+                start += end
+        else:
+            for w, layer in zip(ws, self.layers):
+                layer.set_weights(w)
+
+    @property
+    def output(self):
+        return self.layers[-1].output
+
+    @property
+    def weights(self):
+        return self.get_weights(unfold=False)
+
+    @weights.setter
+    def weights(self, ws):
+        self.set_weights(ws, fold=(ws.ndim > 1))
+
 
 class FeedForwardNet(Network):
     """
@@ -308,63 +334,6 @@ class FeedForwardNet(Network):
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=act_fns[activation])
         self.finalize_architecture(activation=act_fns[output_activation])
-
-    def numerical_gradients(self, X, y, epsilon=1e-5):
-
-        ws = self.weights
-
-        numgrads = np.zeros_like(ws)
-        perturb = np.copy(numgrads)
-
-        for i in range(len(numgrads)):
-            perturb[i] += epsilon
-
-            self.weights = ws + perturb
-            cost1 = self.cost(self.predict_raw(X), y)
-            self.weights = ws - perturb
-            cost2 = self.cost(self.predict_raw(X), y)
-
-            numgrads[i] = (cost1 - cost2)
-            perturb[i] = 0.0
-
-        numgrads /= (2 * epsilon)
-        self.weights = ws
-
-        return numgrads
-
-    def analytical_gradients(self, X, y):
-        ws = self.weights
-        anagrads = np.zeros_like(ws)
-
-        self._forward_pass(X)
-        self._backward_pass(y)
-
-        start = 0
-        for layer in self.layers[1:]:
-            end = start + np.prod(layer.weights.shape)
-            anagrads[start:end] = layer.gradients.ravel()
-            start += end
-
-        return anagrads
-
-    def gradient_check(self, X, y, fold=False):
-        norm = np.linalg.norm
-        numeric = self.numerical_gradients(X, y)
-        analytic = self.analytical_gradients(X, y)
-        diff = analytic - numeric
-
-        relative_error = norm(diff) / max(norm(numeric), norm(analytic))
-
-        if fold:
-            outputs = []
-            start = 0
-            for layer in self.layers[1:]:
-                end = start + np.prod(layer.weights.shape)
-                outputs.append(diff[start:end].reshape(layer.weights.shape))
-                start += end
-            return relative_error, outputs
-
-        return relative_error
 
     @property
     def weights(self):
