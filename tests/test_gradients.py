@@ -1,57 +1,53 @@
 import unittest
 
-import numpy as np
+from numpy.linalg import norm
 
-from csxnet.ann import FeedForwardNet
-from csxdata import CData, roots
-from csxdata.utilities.parsers import mnist_tolearningtable
+from csxdata import etalon
+
+from csxnet.ann import Network
+from csxnet.util import numerical_gradients, analytical_gradients, cost_fns as costs
 
 
-class TestFeedForwardNet(unittest.TestCase):
+class TestNetwork(unittest.TestCase):
+
     def setUp(self):
-        self.data = CData(mnist_tolearningtable(roots["misc"] + "mnist.pkl.gz", fold=False))
+        data = etalon()
+        data.crossval = 0.5
+        data.transformation = "std"
+
+        self.X, self.y = data.table("testing")
+
+        self.net = Network(data, 1.0, 0.0, 0.0, 0.0, "mse", name="NumGradTestNetwork")
+        self.net.add_fc(10)
 
     def test_mse_with_sigmoid_output(self):
-        self.net = FeedForwardNet(60, self.data, eta=1, cost="mse", activation="sigmoid",
-                                  output_activation="sigmoid")
-        self.net.fit(20, 1, 0)
-        self.X, self.y = self.net.data.table("testing", m=10)
-
-        relative_error, diff = self.net.gradient_check(self.X, self.y, fold=True)
-
-        dfstr = "{:.2E}".format(relative_error)
-
-        self.assertLessEqual(relative_error, 1e-2, "FATAL ERROR, {} (relerr) >= 1e-2".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-4, "ERROR, 1e-2 > {} (relerr) >= 1e-4".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-7, "SUSPICIOUS, 1e-4 > {} (relerr) >= 1e-7".format(dfstr))
+        self.net.finalize_architecture("sigmoid")
+        self.net.cost = costs.mse
+        self.run_numerical_gradient_test()
 
     def test_xent_with_sigmoid_output(self):
-        self.net = FeedForwardNet(60, self.data, eta=1, cost="xent", activation="sigmoid",
-                                  output_activation="sigmoid")
-        self.net.fit(20, 1, 0)
-        self.X, self.y = self.net.data.table("testing", m=10)
-
-        relative_error, diff = self.net.gradient_check(self.X, self.y, fold=True)
-
-        dfstr = "{:.2E}".format(relative_error)
-
-        self.assertLessEqual(relative_error, 1e-2, "FATAL ERROR, {} (relerr) >= 1e-2".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-4, "ERROR, 1e-2 > {} (relerr) >= 1e-4".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-7, "SUSPICIOUS, 1e-4 > {} (relerr) >= 1e-7".format(dfstr))
+        self.net.finalize_architecture("sigmoid")
+        self.net.cost = costs.xent
+        self.run_numerical_gradient_test()
 
     def test_xent_with_softmax_output(self):
-        self.net = FeedForwardNet(60, self.data, eta=1, cost="xent", activation="sigmoid",
-                                  output_activation="softmax")
-        self.net.fit(20, 1, 0)
-        self.X, self.y = self.net.data.table("testing", m=10)
+        self.net.finalize_architecture("softmax")
+        self.net.cost = costs.xent
+        self.run_numerical_gradient_test()
 
-        relative_error, diff = self.net.gradient_check(self.X, self.y, fold=True)
+    def run_numerical_gradient_test(self):
+        self.net.fit(5, 1, 0)
 
-        dfstr = "{:.2E}".format(relative_error)
+        numerical = numerical_gradients(self.net, self.X, self.y)
+        analytical = analytical_gradients(self.net, self.X, self.y)
+        diff = analytical - numerical
+        error = norm(diff) / max(norm(numerical), norm(analytical))
 
-        self.assertLessEqual(relative_error, 1e-2, "FATAL ERROR, {} (relerr) >= 1e-2".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-4, "ERROR, 1e-2 > {} (relerr) >= 1e-4".format(dfstr))
-        self.assertLessEqual(relative_error, 1e-7, "SUSPICIOUS, 1e-4 > {} (relerr) >= 1e-7".format(dfstr))
+        dfstr = "{0: .4f}".format(error)
+
+        self.assertLess(error, 1e-2, "FATAL ERROR, {} (relerr) >= 1e-2".format(dfstr))
+        self.assertLess(error, 1e-4, "ERROR, 1e-2 > {} (relerr) >= 1e-4".format(dfstr))
+        self.assertLess(error, 1e-7, "SUSPICIOUS, 1e-4 > {} (relerr) >= 1e-7".format(dfstr))
 
 
 if __name__ == '__main__':
