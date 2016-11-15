@@ -118,7 +118,7 @@ def gradient_check(network, X, y, display=False):
             print("Gradient check failed, 1e-5 < error {} < 1e-3".format(erstr))
             pass_ = False
         else:
-            print("Fatal fail in gradient check, 1e-3 < error {}".format(erstr))
+            print("Fatal fail in gradient check, error {} > 1e-3".format(erstr))
             pass_ = False
         return pass_
 

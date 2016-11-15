@@ -12,9 +12,14 @@ def pull_petofi_data():
     return petofi
 
 
+def build_reference_network(data: Sequence):
+    from keras.models import Sequential
+    from keras.layers import SimpleRNN, Dense
+
+
 def build_network(data: Sequence):
-    rnn = Network(data, 0.01, 0.0, 0.0, 0.0, cost="xent", name="TestRNN")
-    rnn.add_rec(30, activation="relu")
+    rnn = Network(data, 0.01, 0.0, 0.0, 0.0, cost="mse", name="TestRNN")
+    rnn.add_rec(30, activation="sigmoid")
     rnn.finalize_architecture("sigmoid")
 
     return rnn
@@ -29,17 +34,17 @@ def xperiment():
         gradient_check(net, *net.data.table("testing", m=1000), display=False)
 
     net = build_network(pull_petofi_data())
-    if not perform_gradient_checking():
-        return
+
+    perform_gradient_checking()
 
     initcost, initacc = net.evaluate()
     print("Initial cost: {} acc: {}".format(initcost, initacc))
 
     for decade in range(1, 10):
         net.fit(20, 10, monitor=["acc"])
-        print("-"*50)
-        print("Decade:", decade, "|")
-        print("-"*50)
+        print("-"*12)
+        print("Decade: {0:2<} |".format(decade))
+        print("-"*12)
         print(speak_to_me(net, net.data))
 
 

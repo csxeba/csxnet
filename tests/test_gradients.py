@@ -1,24 +1,24 @@
 import unittest
 
+from csxdata import CData
+from csxdata import roots
 from numpy.linalg import norm
-
-from csxdata import etalon
 
 from csxnet.ann import Network
 from csxnet.util import numerical_gradients, analytical_gradients, cost_fns as costs
+from utilities.parsers import mnist_tolearningtable
 
 
 class TestNetwork(unittest.TestCase):
 
     def setUp(self):
-        data = etalon()
-        data.crossval = 0.5
+        data = CData(mnist_tolearningtable(roots["misc"] + "mnist.pkl.gz", fold=False))
         data.transformation = "std"
 
         self.X, self.y = data.table("testing")
 
         self.net = Network(data, 1.0, 0.0, 0.0, 0.0, "mse", name="NumGradTestNetwork")
-        self.net.add_fc(10)
+        self.net.add_fc(30)
 
     def test_mse_with_sigmoid_output(self):
         self.net.finalize_architecture("sigmoid")
@@ -36,7 +36,7 @@ class TestNetwork(unittest.TestCase):
         self.run_numerical_gradient_test()
 
     def run_numerical_gradient_test(self):
-        self.net.fit(5, 1, 0)
+        self.net.fit(50, 1, 0)
 
         numerical = numerical_gradients(self.net, self.X, self.y)
         analytical = analytical_gradients(self.net, self.X, self.y)

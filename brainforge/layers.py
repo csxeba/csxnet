@@ -347,13 +347,11 @@ class Recurrent(_FFLayer):
         self.velocity = None
 
     def receive_error(self, error_matrix: np.ndarray):
-        delta = error_matrix * self.activation.derivative(self.output)
-
         if self.return_seq:
-            self.error = delta.transpose(1, 0, 2)
+            self.error = error_matrix.transpose(1, 0, 2)
         else:
             self.error = np.zeros((self.time, self.brain.m, self.neurons), dtype=floatX)
-            self.error[-1] += delta
+            self.error[-1] += error_matrix
 
     def weight_update(self) -> None:
         eta = self.brain.eta / self.brain.m
@@ -630,11 +628,11 @@ class RLayer(Recurrent):
 
             :return: gW: dC/dW @ timestep <t>; dX dC/dX_{t}; delta: gradient flowing backwards
             """
-            delta += dY
+            delta += dY * self.activation.derivative(self.cache["outputs"][t])
             gW = self.cache["Z"][t].T.dot(delta)
             dZ = delta.dot(self.weights.T)
             dX = dZ[:, :-self.neurons]
-            delta = dZ[:, -self.neurons:] * self.activation.derivative(self.cache["outputs"][t])
+            delta = dZ[:, -self.neurons:]
             return gW, dX, delta
 
         # gradient of the cost wrt the weights: dC/dW
