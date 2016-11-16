@@ -155,12 +155,10 @@ class Network(NeuralNetworkBase):
 
         def print_progress():
             tcost, tacc = self.evaluate("testing")
-            tcost = niceround(tcost, 5)
-            tacc = niceround(tacc * 100, 4)
-            print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
+            print("testing cost: {0:.5f};\taccuracy: {1:.2%}".format(tcost, tacc), end="")
 
         costs = []
-        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size)):
+        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size), start=1):
             costs.append(self._fit_batch(inputs, targets))
             if verbose:
                 done = (bno * batch_size) / self.N
