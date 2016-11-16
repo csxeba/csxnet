@@ -88,7 +88,7 @@ def analytical_gradients(network, X, y):
     return anagrads
 
 
-def gradient_check(network, X, y, display=False):
+def gradient_check(network, X, y, epsilon=1e-5, display=False):
 
     def fold_difference_matrices(d_vec):
         diffs = []
@@ -123,7 +123,7 @@ def gradient_check(network, X, y, display=False):
         return pass_
 
     norm = np.linalg.norm
-    numeric = numerical_gradients(network, X, y)
+    numeric = numerical_gradients(network, X, y, epsilon=epsilon)
     analytic = analytical_gradients(network, X, y)
     diff = analytic - numeric
     relative_error = norm(diff) / max(norm(numeric), norm(analytic))
@@ -136,9 +136,9 @@ def gradient_check(network, X, y, display=False):
     return passed
 
 
-def white(fanin, *dims):
+def white(*dims):
     """Returns a white noise tensor"""
-    return np.random.randn(fanin, *dims) / np.sqrt(fanin / 2.)
+    return np.random.randn(*dims) / np.sqrt(dims[0] / 2.)
 
 
 def white_like(array):

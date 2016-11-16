@@ -2,7 +2,7 @@ from csxdata import Sequence, roots
 from csxdata.utilities.helpers import speak_to_me
 from csxnet import Network
 
-TIMESTEP = 5
+TIMESTEP = 10
 NGRAM = 1
 
 
@@ -15,6 +15,15 @@ def pull_petofi_data():
 def build_reference_network(data: Sequence):
     from keras.models import Sequential
     from keras.layers import SimpleRNN, Dense
+
+    indim, outdim = data.neurons_required
+
+    rnn = Sequential([
+        SimpleRNN(input_dim=indim, output_dim=(30,), activation="sigmoid"),
+        Dense(outdim, activation="sigmoid")
+    ])
+    rnn.compile(optimizer="sgd", loss="mse")
+    return rnn
 
 
 def build_network(data: Sequence):
@@ -31,7 +40,7 @@ def xperiment():
         from csxnet.util import gradient_check
 
         net.fit(20, 1, verbose=0)
-        gradient_check(net, *net.data.table("testing", m=1000), display=False)
+        gradient_check(net, *net.data.table("testing", m=100), epsilon=1e-4, display=False)
 
     net = build_network(pull_petofi_data())
 

@@ -191,7 +191,7 @@ class DenseLayer(_FFLayer):
         :return: numpy.ndarray
         """
         if self.brain.mu:
-            self.velocity = self.brain.mu
+            self.velocity *= self.brain.mu
             self.velocity += self.gradients * (self.brain.eta / self.brain.m)
         # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
         self.gradients = np.dot(self.inputs.T, self.error)
@@ -620,36 +620,36 @@ class RLayer(Recurrent):
     def backpropagation(self):
         """Backpropagation through time (BPTT)"""
 
-        def bptt_timestep(t, dY, delta):
+        def bptt_timestep(t, dY, dh):
             """
             :param t: the timestep indicator
-            :param dY: dC/dY_t -> gradient from the next layer @ timestep <t>
-            :param delta: dC/dY_t+1 -> gradient flowing backwards to timestep <t>
+            :param dY: dC/dY_t -> gradient of the layer output (if any)
+            :param dh: dC/dY_t+1 -> state gradient flowing backwards in time
 
-            :return: gW: dC/dW @ timestep <t>; dX dC/dX_{t}; delta: gradient flowing backwards
+            :return: gR: dC/dR @ timestep <t>; dX dC/dX_{t}; dh: state gradient flowing backwards
             """
-            delta += dY * self.activation.derivative(self.cache["outputs"][t])
-            gW = self.cache["Z"][t].T.dot(delta)
-            dZ = delta.dot(self.weights.T)
+            delta_now = (dY + dh) * self.activation.derivative(self.cache["outputs"][t])
+            gR = self.cache["Z"][t].T.dot(delta_now)
+            dZ = delta_now.dot(self.weights.T)
             dX = dZ[:, :-self.neurons]
-            delta = dZ[:, -self.neurons:]
-            return gW, dX, delta
+            dh = dZ[:, -self.neurons:]
+            return gR, dX, dh
 
         # gradient of the cost wrt the weights: dC/dW
         self.gradients = np.zeros_like(self.weights)
         # gradient of the cost wrt to biases: dC/db
         self.nabla_b = self.error[-1].sum(axis=0)
         # the gradient flowing backwards in time
-        gradient = np.zeros_like(self.error[-1])
+        delta_h = np.zeros_like(self.error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
-        deltaX = np.zeros_like(self.inputs)
+        delta_X = np.zeros_like(self.inputs)
 
         for time in range(self.time-1, -1, -1):
-            gradW, deltaX[time], gradient = bptt_timestep(time, self.error[time], gradient)
-            self.gradients += gradW
+            grad_R, delta_X[time], delta_h = bptt_timestep(time, self.error[time], delta_h)
+            self.gradients += grad_R
             # self.nabla_b += gradient.sum(axis=0)
 
-        return deltaX.transpose(1, 0, 2)
+        return delta_X.transpose(1, 0, 2)
 
 
 class Experimental:
