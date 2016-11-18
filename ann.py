@@ -372,14 +372,15 @@ class FeedForwardNet(Network):
                  cost="xent", activation="tanh", output_activation="sigmoid"):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
-        if isinstance(hiddens, int):
-            hiddens = (hiddens,)
+        if isinstance(neurons, int):
+            neurons = (neurons,)
 
-        self.layout = tuple([self.layers[0].outshape] + list(hiddens) + [self.outsize])
+        self.layout = tuple([self.layers[0].outshape] + list(neurons) + [self.outsize])
 
-        for neu in hiddens:
+        for neu in neurons:
             self.add_fc(neurons=neu, activation=act_fns[activation])
-        self.finalize()
+        self.layers[-1].activation = act_fns[output_activation]
+        self.finalize(cost=cost, lambda1=lmbd1, lambda2=lmbd2, mu=mu)
 
     @property
     def weights(self):
