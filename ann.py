@@ -82,7 +82,7 @@ class Network(NeuralNetworkBase):
         self.predictor = None
         self.encoder = None
 
-        self.finalized = False
+        self._finalized = False
 
     # ---- Methods for architecture building ----
 
@@ -116,9 +116,14 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0):
+    def _add_recurrent(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0, lstm=False):
         inpts = self.layers[-1].outshape[-1]
         args = [self, inpts, neurons, len(self.layers), activation, return_seq]
+        if lstm:
+            from .brainforge.layers import LSTM
+            self.layers.append(LSTM(*args))
+            self.architecture.append("{} LSTM: {}".format(neurons, activation[:4]))
+            return
         if not echo:
             from .brainforge.layers import RLayer
             self.layers.append(RLayer(*args))
@@ -130,26 +135,34 @@ class Network(NeuralNetworkBase):
             self.architecture.append("{} Echo({}): {}".format(neurons, p, activation[:4]))
             # brain, inputs, neurons, time_truncate, position, activation
 
-    def finalize_architecture(self, activation="sigmoid"):
-        from .brainforge.layers import DenseLayer
-        if self.finalized:
-            self.pop()
-        pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
-        self.predictor = DenseLayer(*pargs)
-        self.layers.append(self.predictor)
-        self.architecture.append("{} Dense: {}".format(self.outsize, str(activation)[:4]))
-        self.finalized = True
+    def add_reclayer(self, neurons, activation="tanh", return_seq=False):
+        self._add_recurrent(neurons, activation, return_seq)
+
+    def add_lstm(self, neurons, activation="tanh", return_seq=False):
+        self._add_recurrent(neurons, activation, return_seq, lstm=True)
+
+    def add_echo(self, neurons, activation="tanh", return_seq=False, p=0.1):
+        self._add_recurrent(neurons, activation, return_seq, echo=True, p=p)
+
+    def finalize(self, cost, optimizer="sgd", lambda1=0.0, lambda2=0.0, mu=0.0):
+        if optimizer != "sgd":
+            raise RuntimeError("Only SGD is supported at the moment!")
+        self.cost = cost_fns[cost] if isinstance(cost, str) else cost
+        self.lmbd1 = lambda1
+        self.lmbd2 = lambda2
+        self.mu = mu
+        self._finalized = True
 
     def pop(self):
         self.layers.pop()
         self.architecture.pop()
-        self.finalized = False
+        self._finalized = False
 
     # ---- Methods for model fitting ----
 
     def fit(self, batch_size=20, epochs=10, verbose=1, monitor=()):
 
-        if not self.finalized:
+        if not self._finalized:
             raise RuntimeError("Architecture not finalized!")
 
         for epoch in range(1, epochs+1):
@@ -168,7 +181,7 @@ class Network(NeuralNetworkBase):
             costs.append(self._fit_batch(inputs, targets))
             if verbose:
                 done = (bno * batch_size) / self.N
-                print("\rDone: {0:>7.2%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
+                print("\rDone: {0:>6.1%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
         if "acc" in monitor:
             print_progress()
         print()
@@ -355,7 +368,7 @@ class FeedForwardNet(Network):
     are calculated from the shape of <data>
     """
 
-    def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
+    def __init__(self, neurons, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
                  cost="xent", activation="tanh", output_activation="sigmoid"):
         Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
 
@@ -366,7 +379,7 @@ class FeedForwardNet(Network):
 
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=act_fns[activation])
-        self.finalize_architecture(activation=act_fns[output_activation])
+        self.finalize()
 
     @property
     def weights(self):

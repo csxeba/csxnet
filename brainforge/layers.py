@@ -160,6 +160,9 @@ class DenseLayer(_FFLayer):
 
         self.weights = white(int(inputs), int(neurons))
         self.biases = np.zeros((1, neurons), dtype=float)
+        if self.brain.mu:
+            self.gradients = np.zeros_like(self.weights)
+            self.velocity = np.zeros_like(self.weights)
 
     def feedforward(self, questions):
         """
@@ -454,12 +457,13 @@ class LSTM(Recurrent):
         self.weights = white(self.Z, neurons * 4)
         self.biases = white(1, neurons * 4)
 
-        self.gate_W_gradients = np.zeros_like(self.weights)
-        self.gate_b_gradients = np.zeros_like(self.biases)
+        self.nabla_b = np.zeros_like(self.biases)
 
-        self.fanin = inputs
+        if self.brain.mu:
+            self.gradients = np.zeros_like(self.weights)
+            self.velocity = np.zeros_like(self.weights)
 
-    def feedforward(self, stimuli: np.ndarray):
+    def feedforward(self, X: np.ndarray):
 
         def timestep(Z, C):
             preact = Z.dot(self.weights) + self.biases
@@ -470,29 +474,26 @@ class LSTM(Recurrent):
             h = thC * o
             return h, C, (thC, f, i, o, cand)
 
-        # transposition is neccesary because the first datadim is not time,
-        # but the batch index. (compatibility with CsxData and Keras)
-        stimuli = np.transpose(stimuli, (1, 0, 2))
+        self.inputs = np.transpose(X, (1, 0, 2))
         self.time = self.inputs.shape[0]
         self.cache.reset(time=self.time)
+
         output = np.zeros(self.outshape)
         state = np.zeros(self.outshape)
-        for time in range(self.time):
-            concatenated_inputs = np.concatenate(stimuli[time], output)
+
+        for t in range(self.time):
+            concatenated_inputs = np.concatenate((X[t], output), axis=1)
             output, state, cache = timestep(concatenated_inputs, state)
 
-            self.cache["outputs"][time] = output
-            self.cache["states"][time] = state
-            self.cache["tanh states"][time] = cache[0]
-            self.cache["gate forget"][time] = cache[1]
-            self.cache["gate input"][time] = cache[2]
-            self.cache["gate output"][time] = cache[3]
-            self.cache["candidates"][time] = cache[4]
-            self.cache["Z"][time] = concatenated_inputs
+            self.cache["outputs"][t] = output
+            self.cache["states"][t] = state
+            self.cache["tanh states"][t] = cache[0]
+            self.cache["gate forget"][t] = cache[1]
+            self.cache["gate input"][t] = cache[2]
+            self.cache["gate output"][t] = cache[3]
+            self.cache["candidates"][t] = cache[4]
+            self.cache["Z"][t] = concatenated_inputs
 
-        # I'm not sure about the output,
-        # because either the whole output sequence can be returned -> this keeps the input dims
-        # or just the last output -> this leads to dim reduction
         if self.return_seq:
             self.output = self.cache["outputs"].transpose(1, 0, 2)
             return self.output
@@ -517,8 +518,7 @@ class LSTM(Recurrent):
             """
             # Calculate the gate activations
             preact = z.dot(self.weights)
-            # TODO: rewrite with np.split!!!
-            f, i, o = sigmoid(preact[:self.G]).reshape(self.Z, 3, self.neurons).transpose(1, 0, 2)
+            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
             # Calculate the cell state candidate
             candidate = tanh(preact[self.G:])
             # Apply forget gate to the previus cell state receives as a parameter
@@ -556,19 +556,20 @@ class LSTM(Recurrent):
             gW = cch["Z"][t].T.dot(deltas)
             return gW, dZ, dC
 
-        self.gate_W_gradients = np.zeros_like(self.weights)
-        dstate = 0  # so bptt dC receives + 0 @ time == self.time
-        deltaY = np.zeros((self.brain.m, self.neurons), dtype=floatX)
-        deltaX = np.zeros((self.time, self.brain.m, self.inputs), dtype=floatX)
+        self.gradients = np.zeros_like(self.weights)
+        dstate = 0.  # so bptt dC receives + 0 @ time == self.time
+        error = self.error[-1]
+        deltaX = np.zeros_like(self.inputs, dtype=floatX)
 
         for time in range(self.time, -1, -1):
             if time < self.time:
                 dstate *= self.cache["gate forget"][time+1]
-            deltaY += self.error[time]
-            gradW, deltaZ, dstate = bptt_timestep(time, deltaY, dstate)
-            deltaY = deltaZ[self.neurons:]
+            error += self.error[time]
+            gradW, deltaZ, dstate = bptt_timestep(time, error, dstate)
+            error = deltaZ[self.neurons:]
             deltaX[time] = deltaZ[self.neurons:]
-            self.gate_W_gradients += gradW
+            self.gradients += gradW
+            self.nabla_b += error.sum(axis=0)
 
         return deltaX
 
@@ -580,9 +581,10 @@ class RLayer(Recurrent):
 
         self.weights = white(self.Z, self.neurons)
         self.biases = np.zeros((self.neurons,), dtype=floatX)
-        self.gradients = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
-        self.velocity = np.zeros_like(self.weights)
+        if self.brain.mu:
+            self.gradients = np.zeros_like(self.weights)
+            self.velocity = np.zeros_like(self.weights)
 
     def feedforward(self, questions: np.ndarray):
         self.inputs = questions.transpose(1, 0, 2)
@@ -590,12 +592,14 @@ class RLayer(Recurrent):
         self.cache.reset(batch_size=self.brain.m, time=self.time)
 
         def timestep(Z):
-            wsum = Z.dot(self.weights) + self.biases
-            return self.activation(wsum)
+            return self.activation(Z.dot(self.weights) + self.biases)
 
         for t in range(self.time):
-            self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t-1]), axis=1)
-            self.cache["outputs"][t] = timestep(self.cache["Z"][t])
+            concatenated_inputs = np.concatenate((self.inputs[t], self.cache["outputs"][t-1]), axis=1)
+            output = timestep(concatenated_inputs)
+
+            self.cache["Z"][t] = concatenated_inputs
+            self.cache["outputs"][t] = output
 
         if self.return_seq:
             self.output = self.cache["outputs"].transpose(1, 0, 2)
@@ -652,7 +656,7 @@ class RLayer(Recurrent):
         for time in range(self.time-1, -1, -1):
             grad_R, delta_X[time], error = bptt_timestep(time, self.error[time], error)
             self.gradients += grad_R
-            # self.nabla_b += gradient.sum(axis=0)
+            self.nabla_b += error.sum(axis=0)
 
         return delta_X.transpose(1, 0, 2)
 
@@ -668,11 +672,19 @@ class EchoLayer(RLayer):
     def weight_update(self):
         pass
 
+    def backpropagation(self):
+        pose = self.position
+        if pose == 1:
+            return None
+        else:
+            return RLayer.backpropagation(self)
+
     def get_weights(self, unfold=True):
         return np.array([[]])
 
     def set_weights(self, w, fold=True):
         pass
+
 
 class Experimental:
 
