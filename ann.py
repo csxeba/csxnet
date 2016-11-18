@@ -116,13 +116,19 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, activation="tanh"):
-        from .brainforge.layers import RLayer
+    def add_rec(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0):
         inpts = self.layers[-1].outshape[-1]
-        args = self, inpts, neurons, len(self.layers), activation
-        self.layers.append(RLayer(*args))
-        self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
-        # brain, inputs, neurons, time_truncate, position, activation
+        args = [self, inpts, neurons, len(self.layers), activation, return_seq]
+        if not echo:
+            from .brainforge.layers import RLayer
+            self.layers.append(RLayer(*args))
+            self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
+            # brain, inputs, neurons, time_truncate, position, activation
+        else:
+            from .brainforge.layers import EchoLayer
+            self.layers.append(EchoLayer(*(args + [p])))
+            self.architecture.append("{} Echo({}): {}".format(neurons, p, activation[:4]))
+            # brain, inputs, neurons, time_truncate, position, activation
 
     def finalize_architecture(self, activation="sigmoid"):
         from .brainforge.layers import DenseLayer
@@ -283,19 +289,48 @@ class Network(NeuralNetworkBase):
             return chain
 
     def get_weights(self, unfold=True):
-        ws = [layer.get_weights(unfold=unfold) for layer in self.layers]
-        return np.concatenate(ws[1:]) if unfold else ws
+        ws = [layer.get_weights(unfold=unfold) for layer in self.layers if layer.trainable]
+        return np.concatenate(ws) if unfold else ws
 
     def set_weights(self, ws, fold=True):
         if fold:
             start = 0
-            for layer in self.layers[1:]:
+            for layer in self.layers:
+                if not layer.trainable:
+                    continue
                 end = start + np.prod(layer.weights.shape)
                 layer.set_weights(ws[start:end])
                 start += end
         else:
             for w, layer in zip(ws, self.layers):
+                if not layer.trainable:
+                    continue
                 layer.set_weights(w)
+
+    def gradient_check(self, X=None, y=None, verbose=1):
+
+        def get_data():
+            nX, ny = self.data.table("testing", m=20, shuff=False)
+            if nX is None and ny is None:
+                nX, ny = self.data.table("learning", m=20, shuff=False)
+            if X is None and y is not None:
+                return nX
+            elif y is None and X is not None:
+                return ny
+            elif X is None and y is None:
+                return nX, ny
+
+        if X is None or y is None:
+            X, y = get_data()
+
+        if self.age == 0:
+            print("Performing gradient check on an untrained Neural Network!")
+            print("This can lead to numerical unstability. Training 1 epoch now!")
+            self._epoch(20, verbose=1)
+
+        from .util import gradient_check
+
+        return gradient_check(self, X, y, verbose=verbose)
 
     @property
     def output(self):

@@ -73,14 +73,17 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
 
 
 def analytical_gradients(network, X, y):
-    ws = network.get_weights(unfold=True)
-    anagrads = np.zeros_like(ws)
 
+    nparams = sum(np.prod(layer.weights.shape) for layer
+                  in network.layers if layer.trainable)
+    anagrads = np.zeros((nparams,))
     network._forward_pass(X)
     network._backward_pass(y)
 
     start = 0
-    for layer in network.layers[1:]:
+    for layer in network.layers:
+        if not layer.trainable:
+            continue
         end = start + np.prod(layer.weights.shape)
         anagrads[start:end] = layer.gradients.ravel()
         start += end
@@ -88,7 +91,7 @@ def analytical_gradients(network, X, y):
     return anagrads
 
 
-def gradient_check(network, X, y, epsilon=1e-5, display=False):
+def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
 
     def fold_difference_matrices(d_vec):
         diffs = []
@@ -106,29 +109,33 @@ def gradient_check(network, X, y, epsilon=1e-5, display=False):
             img = Image.fromarray(matrix, mode="F")
             img.show()
 
-    def printout_result(er):
-        erstr = "({:.4f})".format(er)
-        pass_ = True
-        print("Result of gradient check:")
+    def get_results(er):
         if relative_error < 1e-7:
-            print("Gradient check passed, error {} < 1e-7".format(erstr))
+            errcode = 0
         elif relative_error < 1e-5:
-            print("Suspicious gradients, 1e-7 < error {} < 1e-5".format(erstr))
+            errcode = 1
         elif relative_error < 1e-3:
-            print("Gradient check failed, 1e-5 < error {} < 1e-3".format(erstr))
-            pass_ = False
+            errcode = 2
         else:
-            print("Fatal fail in gradient check, error {} > 1e-3".format(erstr))
-            pass_ = False
-        return pass_
+            errcode = 3
+
+        if verbose:
+            print("Result of gradient check:")
+            print(["Gradient check passed, error {} < 1e-7",
+                   "Suspicious gradients, 1e-7 < error {} < 1e-5",
+                   "Gradient check failed, 1e-5 < error {} < 1e-3",
+                   "Fatal fail in gradient check, error {} > 1e-3"
+                   ][errcode].format("({0:.1e})".format(er)))
+
+        return True if errcode < 3 else False
 
     norm = np.linalg.norm
-    numeric = numerical_gradients(network, X, y, epsilon=epsilon)
     analytic = analytical_gradients(network, X, y)
+    numeric = numerical_gradients(network, X, y, epsilon=epsilon)
     diff = analytic - numeric
     relative_error = norm(diff) / max(norm(numeric), norm(analytic))
 
-    passed = printout_result(relative_error)
+    passed = get_results(relative_error)
 
     if display:
         display_differences(diff)

@@ -17,6 +17,7 @@ class _LayerBase(abc.ABC):
         self.brain = brain
         self.position = position
         self.inputs = None
+        self.trainable = True
         if isinstance(activation, str):
             self.activation = act_fns[activation]
         else:
@@ -284,6 +285,7 @@ class InputLayer(_LayerBase):
     def __init__(self, brain, inshape):
         _LayerBase.__init__(self, brain, position=0, activation="linear")
         self.neurons = inshape
+        self.trainable = False
 
     def feedforward(self, questions):
         """
@@ -292,7 +294,7 @@ class InputLayer(_LayerBase):
         :param questions: numpy.ndarray
         :return: numpy.ndarray
         """
-        self.inputs = questions
+        self.inputs = self.output = questions
         return questions
 
     def predict(self, stimuli):
@@ -588,16 +590,19 @@ class RLayer(Recurrent):
         self.cache.reset(batch_size=self.brain.m, time=self.time)
 
         def timestep(Z):
-            return self.activation(Z.dot(self.weights) + self.biases)
+            wsum = Z.dot(self.weights) + self.biases
+            return self.activation(wsum)
 
         for t in range(self.time):
-            self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t]), axis=1)
+            self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t-1]), axis=1)
             self.cache["outputs"][t] = timestep(self.cache["Z"][t])
 
         if self.return_seq:
-            return self.cache["outputs"].transpose(1, 0, 2)
+            self.output = self.cache["outputs"].transpose(1, 0, 2)
         else:
-            return self.cache["outputs"][-1]
+            self.output = self.cache["outputs"][-1]
+
+        return self.output
 
     def predict(self, stimuli: np.ndarray) -> np.ndarray:
         stimuli = stimuli.transpose(1, 0, 2)
@@ -640,17 +645,34 @@ class RLayer(Recurrent):
         # gradient of the cost wrt to biases: dC/db
         self.nabla_b = self.error[-1].sum(axis=0)
         # the gradient flowing backwards in time
-        delta_h = np.zeros_like(self.error[-1])
+        error = np.zeros_like(self.error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
         delta_X = np.zeros_like(self.inputs)
 
         for time in range(self.time-1, -1, -1):
-            grad_R, delta_X[time], delta_h = bptt_timestep(time, self.error[time], delta_h)
+            grad_R, delta_X[time], error = bptt_timestep(time, self.error[time], error)
             self.gradients += grad_R
             # self.nabla_b += gradient.sum(axis=0)
 
         return delta_X.transpose(1, 0, 2)
 
+
+class EchoLayer(RLayer):
+    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False,
+                 p=0.1):
+        RLayer.__init__(self, brain, inputs, neurons, position, activation, return_seq)
+        self.weights = np.random.binomial(1., p, size=self.weights.shape).astype(floatX)
+        self.weights *= np.random.randn(*self.weights.shape)  # + 1.)
+        self.trainable = False
+
+    def weight_update(self):
+        pass
+
+    def get_weights(self, unfold=True):
+        return np.array([[]])
+
+    def set_weights(self, w, fold=True):
+        pass
 
 class Experimental:
 
