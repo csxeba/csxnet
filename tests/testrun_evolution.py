@@ -4,7 +4,7 @@ from csxnet.evolution import Population, describe
 
 
 def fn(ind, queue=None):
-    from csxdata.utilities.pure import euclidean
+    from csxdata.utilities.misc import euclidean
 
     del queue
     target = [50] * len(ind.genome)

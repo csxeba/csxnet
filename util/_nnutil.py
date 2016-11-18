@@ -45,9 +45,111 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
     return tuple(coords)
 
 
-def white(fanin, *dims):
+def numerical_gradients(network, X, y, epsilon=1e-5):
+    ws = network.get_weights(unfold=True)
+    numgrads = np.zeros_like(ws)
+    perturb = np.copy(numgrads)
+
+    nparams = len(numgrads)
+    print("Calculating numerical gradients...")
+    for i in range(nparams):
+        print("\r{0:>{1}} / {2:<}".format(i+1, len(str(nparams)), nparams), end=" ")
+        perturb[i] += epsilon
+
+        network.set_weights(ws + perturb, fold=True)
+        cost1 = network.cost(network.predict_raw(X), y)
+        network.set_weights(ws - perturb, fold=True)
+        cost2 = network.cost(network.predict_raw(X), y)
+
+        numgrads[i] = (cost1 - cost2)
+        perturb[i] = 0.0
+
+    numgrads /= (2 * epsilon)
+    network.set_weights(ws, fold=True)
+
+    print("Done!")
+
+    return numgrads
+
+
+def analytical_gradients(network, X, y):
+
+    nparams = sum(np.prod(layer.weights.shape) for layer
+                  in network.layers if layer.trainable)
+    anagrads = np.zeros((nparams,))
+    network._forward_pass(X)
+    network._backward_pass(y)
+
+    start = 0
+    for layer in network.layers:
+        if not layer.trainable:
+            continue
+        end = start + np.prod(layer.weights.shape)
+        anagrads[start:end] = layer.gradients.ravel()
+        start += end
+
+    return anagrads
+
+
+def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
+
+    def fold_difference_matrices(d_vec):
+        diffs = []
+        start = 0
+        for layer in network.layers[1:]:
+            end = start + np.prod(layer.weights.shape)
+            diffs.append(d_vec[start:end].reshape(layer.weights.shape))
+            start += end
+        return diffs
+
+    def display_differences(d):
+        from PIL import Image
+        d = fold_difference_matrices(d)
+        for n, matrix in enumerate(d, start=1):
+            img = Image.fromarray(matrix, mode="F")
+            img.show()
+
+    def get_results(er):
+        if relative_error < 1e-7:
+            errcode = 0
+        elif relative_error < 1e-5:
+            errcode = 1
+        elif relative_error < 1e-3:
+            errcode = 2
+        else:
+            errcode = 3
+
+        if verbose:
+            print("Result of gradient check:")
+            print(["Gradient check passed, error {} < 1e-7",
+                   "Suspicious gradients, 1e-7 < error {} < 1e-5",
+                   "Gradient check failed, 1e-5 < error {} < 1e-3",
+                   "Fatal fail in gradient check, error {} > 1e-3"
+                   ][errcode].format("({0:.1e})".format(er)))
+
+        return True if errcode < 3 else False
+
+    norm = np.linalg.norm
+    analytic = analytical_gradients(network, X, y)
+    numeric = numerical_gradients(network, X, y, epsilon=epsilon)
+    diff = analytic - numeric
+    relative_error = norm(diff) / max(norm(numeric), norm(analytic))
+
+    passed = get_results(relative_error)
+
+    if display:
+        display_differences(diff)
+
+    return passed
+
+
+def white(*dims):
     """Returns a white noise tensor"""
-    return np.random.randn(fanin, *dims) / np.sqrt(fanin / 2.)
+    return np.random.randn(*dims) / np.sqrt(dims[0] / 2.)
+
+
+def white_like(array):
+    return white(*array.shape)
 
 
 class _ActivationFunctionBase(abc.ABC):

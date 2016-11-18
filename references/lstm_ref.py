@@ -104,7 +104,7 @@ class LSTM:
         dc0 = np.zeros((b, d))
         dHout = dHout_in.copy()  # make a copy so we don't have any funny side effects
         if dcn is not None:
-            dC[n - 1] += dcn.copy()  # carry over gradients from later
+            dC[n - 1] += dcn.copy()  # carry over nabla_w from later
         if dhn is not None:
             dHout[n - 1] += dhn.copy()
         for t in reversed(range(n)):
@@ -177,7 +177,7 @@ def checkSequentialMatchesBatch():
     # loss = np.sum(Hcat * wrand)
     dH = wrand
 
-    # get the batched version gradients
+    # get the batched version nabla_w
     BdX, BdWLSTM, Bdc0, Bdh0 = LSTM.backward(dH, batch_cache)
 
     # now perform sequential backward
@@ -199,7 +199,7 @@ def checkSequentialMatchesBatch():
             dc0 = dcprev
             dh0 = dhprev
 
-    # and make sure the gradients match
+    # and make sure the nabla_w match
     print()
     'Making sure batched version agrees with sequential version: (should all be True)'
     print()

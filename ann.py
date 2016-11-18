@@ -21,9 +21,10 @@ import abc
 
 import numpy as np
 
-from .util import act_fns, cost_fns
+from csxdata.utilities.misc import niceround
 
-from csxdata.utilities.pure import niceround
+from .brainforge.layers import InputLayer
+from .util import act_fns, cost_fns
 
 
 class NeuralNetworkBase(abc.ABC):
@@ -64,8 +65,8 @@ class NeuralNetworkBase(abc.ABC):
 
 
 class Network(NeuralNetworkBase):
+
     def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost, name=""):
-        from .brainforge.layers import InputLayer
 
         NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, name)
 
@@ -115,16 +116,24 @@ class Network(NeuralNetworkBase):
         self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
         # brain, inputs, neurons, dropout, position, activation
 
-    def add_rec(self, neurons, activation="tanh"):
-        from .brainforge.layers import RLayer
-        inpts = np.prod(self.layers[-1].outshape)
-        args = self, inpts, neurons, len(self.layers), activation
-        self.layers.append(RLayer(*args))
-        self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
-        # brain, inputs, neurons, time_truncate, position, activation
+    def add_rec(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0):
+        inpts = self.layers[-1].outshape[-1]
+        args = [self, inpts, neurons, len(self.layers), activation, return_seq]
+        if not echo:
+            from .brainforge.layers import RLayer
+            self.layers.append(RLayer(*args))
+            self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
+            # brain, inputs, neurons, time_truncate, position, activation
+        else:
+            from .brainforge.layers import EchoLayer
+            self.layers.append(EchoLayer(*(args + [p])))
+            self.architecture.append("{} Echo({}): {}".format(neurons, p, activation[:4]))
+            # brain, inputs, neurons, time_truncate, position, activation
 
     def finalize_architecture(self, activation="sigmoid"):
         from .brainforge.layers import DenseLayer
+        if self.finalized:
+            self.pop()
         pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
         self.predictor = DenseLayer(*pargs)
         self.layers.append(self.predictor)
@@ -152,16 +161,14 @@ class Network(NeuralNetworkBase):
 
         def print_progress():
             tcost, tacc = self.evaluate("testing")
-            tcost = niceround(tcost, 5)
-            tacc = niceround(tacc * 100, 4)
-            print("testing cost: {};\taccuracy: {}%".format(tcost, tacc), end="")
+            print("testing cost: {0:.5f};\taccuracy: {1:.2%}".format(tcost, tacc), end="")
 
         costs = []
-        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size)):
+        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size), start=1):
             costs.append(self._fit_batch(inputs, targets))
             if verbose:
-                done_percent = int(100 * (((bno + 1) * batch_size) / self.N))
-                print("\r{}%:\tCost: {}\t ".format(done_percent, niceround(np.mean(costs), 5)), end="")
+                done = (bno * batch_size) / self.N
+                print("\rDone: {0:>7.2%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
         if "acc" in monitor:
             print_progress()
         print()
@@ -188,7 +195,7 @@ class Network(NeuralNetworkBase):
         self._backward_pass(y)
         self._parameter_update()
 
-        endcost = self.cost(self.output, y)
+        endcost = self.cost(self.output, y) / self.m
         return endcost
 
     def _forward_pass(self, X):
@@ -211,6 +218,8 @@ class Network(NeuralNetworkBase):
         if self.data.type == "classification":
             return self.predict_class(X)
         elif self.data.type == "regression":
+            return self.predict_raw(X)
+        elif self.data.type == "sequence":
             return self.predict_raw(X)
         else:
             raise TypeError("Unsupported Dataframe Type")
@@ -241,7 +250,7 @@ class Network(NeuralNetworkBase):
 
         X, y = self.data.table(on, shuff=True, m=self.data.n_testing)
         predictions = self.predict_raw(X)
-        cost = self.cost(predictions, y)
+        cost = self.cost(predictions, y) / y.shape[0]
         if accuracy:
             pred_classes = np.argmax(predictions, axis=1)
             trgt_classes = np.argmax(y, axis=1)
@@ -251,10 +260,6 @@ class Network(NeuralNetworkBase):
         return cost
 
     # ---- Some utilities ----
-
-    @property
-    def output(self):
-        return self.layers[-1].output
 
     def save(self, path):
         import pickle
@@ -283,19 +288,61 @@ class Network(NeuralNetworkBase):
         else:
             return chain
 
-    def dream(self, matrix):
-        """Reverse-feedforward"""
-        assert not all(["C" in l for l in self.architecture]), "Convolutional dreaming not <yet> supported!"
-        assert all([(isinstance(layer.activation, act_fns.sigmoid)) or (layer.activation is act_fns.sigmoid)
-                    for layer in self.layers[1:]]), "Only Sigmoid is supported!"
+    def get_weights(self, unfold=True):
+        ws = [layer.get_weights(unfold=unfold) for layer in self.layers if layer.trainable]
+        return np.concatenate(ws) if unfold else ws
 
-        from csxdata.utilities.nputils import logit
+    def set_weights(self, ws, fold=True):
+        if fold:
+            start = 0
+            for layer in self.layers:
+                if not layer.trainable:
+                    continue
+                end = start + np.prod(layer.weights.shape)
+                layer.set_weights(ws[start:end])
+                start += end
+        else:
+            for w, layer in zip(ws, self.layers):
+                if not layer.trainable:
+                    continue
+                layer.set_weights(w)
 
-        print("Warning! Network.dream() is highly experimental and possibly buggy!")
+    def gradient_check(self, X=None, y=None, verbose=1):
 
-        for layer in self.layers[-1:0:-1]:
-            matrix = logit(matrix.dot(layer.weights.T))
-        return matrix
+        def get_data():
+            nX, ny = self.data.table("testing", m=20, shuff=False)
+            if nX is None and ny is None:
+                nX, ny = self.data.table("learning", m=20, shuff=False)
+            if X is None and y is not None:
+                return nX
+            elif y is None and X is not None:
+                return ny
+            elif X is None and y is None:
+                return nX, ny
+
+        if X is None or y is None:
+            X, y = get_data()
+
+        if self.age == 0:
+            print("Performing gradient check on an untrained Neural Network!")
+            print("This can lead to numerical unstability. Training 1 epoch now!")
+            self._epoch(20, verbose=1)
+
+        from .util import gradient_check
+
+        return gradient_check(self, X, y, verbose=verbose)
+
+    @property
+    def output(self):
+        return self.layers[-1].output
+
+    @property
+    def weights(self):
+        return self.get_weights(unfold=False)
+
+    @weights.setter
+    def weights(self, ws):
+        self.set_weights(ws, fold=(ws.ndim > 1))
 
 
 class FeedForwardNet(Network):
@@ -320,63 +367,6 @@ class FeedForwardNet(Network):
         for neu in hiddens:
             self.add_fc(neurons=neu, activation=act_fns[activation])
         self.finalize_architecture(activation=act_fns[output_activation])
-
-    def numerical_gradients(self, X, y, epsilon=1e-5):
-
-        ws = self.weights
-
-        numgrads = np.zeros_like(ws)
-        perturb = np.copy(numgrads)
-
-        for i in range(len(numgrads)):
-            perturb[i] += epsilon
-
-            self.weights = ws + perturb
-            cost1 = self.cost(self.predict_raw(X), y)
-            self.weights = ws - perturb
-            cost2 = self.cost(self.predict_raw(X), y)
-
-            numgrads[i] = (cost1 - cost2)
-            perturb[i] = 0.0
-
-        numgrads /= (2 * epsilon)
-        self.weights = ws
-
-        return numgrads
-
-    def analytical_gradients(self, X, y):
-        ws = self.weights
-        anagrads = np.zeros_like(ws)
-
-        self._forward_pass(X)
-        self._backward_pass(y)
-
-        start = 0
-        for layer in self.layers[1:]:
-            end = start + np.prod(layer.weights.shape)
-            anagrads[start:end] = layer.gradients.ravel()
-            start += end
-
-        return anagrads
-
-    def gradient_check(self, X, y, fold=False):
-        norm = np.linalg.norm
-        numeric = self.numerical_gradients(X, y)
-        analytic = self.analytical_gradients(X, y)
-        diff = analytic - numeric
-
-        relative_error = norm(diff) / max(norm(numeric), norm(analytic))
-
-        if fold:
-            outputs = []
-            start = 0
-            for layer in self.layers[1:]:
-                end = start + np.prod(layer.weights.shape)
-                outputs.append(diff[start:end].reshape(layer.weights.shape))
-                start += end
-            return relative_error, outputs
-
-        return relative_error
 
     @property
     def weights(self):

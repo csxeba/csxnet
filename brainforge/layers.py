@@ -2,14 +2,13 @@ import abc
 import warnings
 
 import numpy as np
-from scipy.ndimage import convolve
 
 from ..util import act_fns
 from ..util import sigmoid, tanh
-from ..util import l1term, l2term, outshape, calcsteps, white
+from ..util import l1term, l2term, outshape, calcsteps, white, white_like
 
 from csxdata import floatX
-from csxdata.utilities.nputils import maxpool, ravel_to_matrix as rtm
+from csxdata.utilities.vectorops import maxpool, ravel_to_matrix as rtm
 
 
 class _LayerBase(abc.ABC):
@@ -18,6 +17,7 @@ class _LayerBase(abc.ABC):
         self.brain = brain
         self.position = position
         self.inputs = None
+        self.trainable = True
         if isinstance(activation, str):
             self.activation = act_fns[activation]
         else:
@@ -40,6 +40,12 @@ class _LayerBase(abc.ABC):
 
     @abc.abstractmethod
     def shuffle(self) -> None: pass
+
+    @abc.abstractmethod
+    def get_weights(self, unfold=True): raise NotImplemented
+
+    @abc.abstractmethod
+    def set_weights(self, w, fold=True): raise NotImplemented
 
     @abc.abstractproperty
     def outshape(self): pass
@@ -88,6 +94,12 @@ class _VecLayer(_LayerBase):
     @abc.abstractproperty
     def outshape(self): pass
 
+    @abc.abstractmethod
+    def get_weights(self, unfold=True): raise NotImplemented
+
+    @abc.abstractmethod
+    def set_weights(self, w, fold=True): raise NotImplemented
+
 
 class _FFLayer(_LayerBase):
     """Base class for the fully connected layer types"""
@@ -99,6 +111,11 @@ class _FFLayer(_LayerBase):
 
         self.output = np.zeros((neurons,))
         self.error = np.zeros((neurons,))
+
+        self.weights = None
+        self.biases = None
+        self.gradients = None
+        self.velocity = None
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray: pass
@@ -115,8 +132,15 @@ class _FFLayer(_LayerBase):
     @abc.abstractmethod
     def receive_error(self, error_vector: np.ndarray) -> None: pass
 
-    @abc.abstractmethod
-    def shuffle(self) -> None: pass
+    def shuffle(self) -> None:
+        self.weights = white_like(self.weights)
+        self.biases = np.zeros_like(self.biases)
+
+    def get_weights(self, unfold=True):
+        return self.weights.ravel() if unfold else self.weights
+
+    def set_weights(self, w, fold=True):
+        self.weights = w.reshape(self.weights.shape) if fold else w
 
     @property
     def outshape(self):
@@ -135,10 +159,7 @@ class DenseLayer(_FFLayer):
                           activation=activation)
 
         self.weights = white(int(inputs), int(neurons))
-        self.gradients = np.zeros_like(self.weights)
-        self.velocity = np.zeros_like(self.weights)
         self.biases = np.zeros((1, neurons), dtype=float)
-        self.N = 0  # current batch size
 
     def feedforward(self, questions):
         """
@@ -171,7 +192,7 @@ class DenseLayer(_FFLayer):
         :return: numpy.ndarray
         """
         if self.brain.mu:
-            self.velocity = self.brain.mu
+            self.velocity *= self.brain.mu
             self.velocity += self.gradients * (self.brain.eta / self.brain.m)
         # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
         self.gradients = np.dot(self.inputs.T, self.error)
@@ -226,9 +247,11 @@ class DenseLayer(_FFLayer):
         """
         self.error = rtm(error) * self.activation.derivative(self.output)
 
-    def shuffle(self):
-        ws = self.weights.shape
-        self.weights = np.random.randn(*ws) / np.sqrt(ws[0])
+    def get_weights(self, unfold=True):
+        return self.weights.ravel() if unfold else self.weights
+
+    def set_weights(self, w, fold=True):
+        self.weights = w.reshape(self.weights.shape) if fold else w
 
 
 class DropOut(DenseLayer):
@@ -258,9 +281,11 @@ class DropOut(DenseLayer):
 
 
 class InputLayer(_LayerBase):
+
     def __init__(self, brain, inshape):
         _LayerBase.__init__(self, brain, position=0, activation="linear")
         self.neurons = inshape
+        self.trainable = False
 
     def feedforward(self, questions):
         """
@@ -269,7 +294,7 @@ class InputLayer(_LayerBase):
         :param questions: numpy.ndarray
         :return: numpy.ndarray
         """
-        self.inputs = questions
+        self.inputs = self.output = questions
         return questions
 
     def predict(self, stimuli):
@@ -292,6 +317,12 @@ class InputLayer(_LayerBase):
 
     def shuffle(self): pass
 
+    def get_weights(self, unfold=True):
+        return None
+
+    def set_weights(self, w, fold=True):
+        pass
+
     @property
     def outshape(self):
         return self.neurons
@@ -304,40 +335,49 @@ class InputLayer(_LayerBase):
 
 class Recurrent(_FFLayer):
 
-    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False):
+    def __init__(self, brain, inputs, neurons, position, activation, return_seq):
         _FFLayer.__init__(self, brain, neurons, position, activation)
         self.Z = inputs + neurons
-        self.cache = self.Cache(inputs[-1], neurons)
+        self.cache = self.Cache(inputs, neurons)
         self.time = 0
         self.return_seq = return_seq
 
-    @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray:
-        pass
+        self.weights = None
+        self.biases = None
+        self.gradients = None
+        self.nabla_b = None
+        self.velocity = None
 
-    @abc.abstractmethod
-    def shuffle(self) -> None:
-        pass
-
-    def receive_error(self, error_matrix: np.ndarray) -> None:
-        self.error = np.zeros((self.time, self.brain.m, self.neurons))
+    def receive_error(self, error_matrix: np.ndarray):
         if self.return_seq:
-            self.error += error_matrix.reshape(self.brain.m, self.time, self.neurons).transpose(1, 0, 2)
-            self.error *= tanh.derivative(self.output)
+            self.error = error_matrix.transpose(1, 0, 2)
         else:
-            self.error += error_matrix
+            self.error = np.zeros((self.time, self.brain.m, self.neurons), dtype=floatX)
+            self.error[-1] += error_matrix
+
+    def weight_update(self) -> None:
+        eta = self.brain.eta / self.brain.m
+
+        if self.brain.mu:
+            self.velocity *= self.brain.mu
+            self.velocity += self.gradients * eta
+            self.weights -= self.velocity
+            # self.biases -= eta * self.nabla_b
+        else:
+            self.weights -= eta * self.gradients
+            # self.biases -= eta * self.nabla_b
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
-        pass
+        raise NotImplementedError
 
     @abc.abstractmethod
-    def weight_update(self) -> None:
-        pass
+    def predict(self, stimuli: np.ndarray) -> np.ndarray:
+        raise NotImplementedError
 
     @abc.abstractmethod
     def backpropagation(self) -> np.ndarray:
-        pass
+        raise NotImplementedError
 
     @property
     def outshape(self):
@@ -405,6 +445,7 @@ class Recurrent(_FFLayer):
 
 
 class LSTM(Recurrent):
+
     def __init__(self, brain, neurons, inputs, position, return_seq):
         Recurrent.__init__(self, brain, inputs, neurons, position, return_seq=return_seq, activation="tanh")
 
@@ -531,77 +572,107 @@ class LSTM(Recurrent):
 
         return deltaX
 
-    def weight_update(self):
-        # Update weights and biases
-        np.subtract(self.weights, self.gate_W_gradients * self.brain.eta,
-                    out=self.weights)
-        np.subtract(self.biases, np.mean(self.error, axis=0) * self.brain.eta,
-                    out=self.biases)
-
-    def shuffle(self):
-        pass
-
 
 class RLayer(Recurrent):
-    def __init__(self, brain, inputs, neurons, position, activation):
-        Recurrent.__init__(self, brain, inputs, neurons, position, activation)
+
+    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False):
+        Recurrent.__init__(self, brain, inputs, neurons, position, activation, return_seq=return_seq)
 
         self.weights = white(self.Z, self.neurons)
-        self.biases = white(self.neurons)
-        self.grad_w = np.zeros_like(self.weights)
-        self.grad_b = np.zeros_like(self.biases)
+        self.biases = np.zeros((self.neurons,), dtype=floatX)
+        self.gradients = np.zeros_like(self.weights)
+        self.nabla_b = np.zeros_like(self.biases)
+        self.velocity = np.zeros_like(self.weights)
 
     def feedforward(self, questions: np.ndarray):
-        questions = questions.transpose(1, 0, 2)
-        self.time = questions.shape[0]
+        self.inputs = questions.transpose(1, 0, 2)
+        self.time = self.inputs.shape[0]
         self.cache.reset(batch_size=self.brain.m, time=self.time)
 
-        def timestep(X, h):
-            Z = np.concatenate((X, h))
-            h = tanh(Z.dot(self.weights) + self.biases)
-            return h
+        def timestep(Z):
+            wsum = Z.dot(self.weights) + self.biases
+            return self.activation(wsum)
 
         for t in range(self.time):
-            self.cache["Z"][t] = np.concatenate((questions[t], self.cache["outputs"][t]))
-            self.cache["outputs"][t] = timestep(self.cache["Z"][t], self.cache["outputs"][t])
+            self.cache["Z"][t] = np.concatenate((self.inputs[t], self.cache["outputs"][t-1]), axis=1)
+            self.cache["outputs"][t] = timestep(self.cache["Z"][t])
 
         if self.return_seq:
-            return self.cache["outputs"].transpose(1, 0, 2)
+            self.output = self.cache["outputs"].transpose(1, 0, 2)
         else:
-            return self.cache["outputs"][-1]
+            self.output = self.cache["outputs"][-1]
+
+        return self.output
+
+    def predict(self, stimuli: np.ndarray) -> np.ndarray:
+        stimuli = stimuli.transpose(1, 0, 2)
+        time, m = stimuli.shape[:2]
+
+        def timestep(x, h):
+            Z = np.concatenate((x, h), axis=1)
+            h = self.activation(Z.dot(self.weights) + self.biases)
+            return h
+
+        outputs = np.zeros((time, m, self.neurons))
+        for t in range(time):
+            outputs[t] = timestep(stimuli[t], outputs[t-1])
+
+        if self.return_seq:
+            return outputs.transpose(1, 0, 2)
+        else:
+            return outputs[-1]
 
     def backpropagation(self):
         """Backpropagation through time (BPTT)"""
-        self.grad_w = np.zeros_like(self.weights)
 
-        def bptt_timestep(t, dy):
-            gW = self.cache["Z"][t].T.dot(dy)
-            dZ = dy.dot(self.weights.T)
-            return gW, dZ
+        def bptt_timestep(t, dY, dh):
+            """
+            :param t: the timestep indicator
+            :param dY: dC/dY_t -> gradient of the layer output (if any)
+            :param dh: dC/dY_t+1 -> state gradient flowing backwards in time
 
-        self.grad_w = np.zeros_like(self.weights)
-        delta_output = self.error[-1]
-        deltaY = np.zeros_like(delta_output)
-        deltaX = np.zeros_like(self.inputs)
+            :return: gR: dC/dR @ timestep <t>; dX dC/dX_{t}; dh: state gradient flowing backwards
+            """
+            delta_now = (dY + dh) * self.activation.derivative(self.cache["outputs"][t])
+            gR = self.cache["Z"][t].T.dot(delta_now)
+            dZ = delta_now.dot(self.weights.T)
+            dX = dZ[:, :-self.neurons]
+            dh = dZ[:, -self.neurons:]
+            return gR, dX, dh
 
-        for time in range(self.time, -1, -1):
-            deltaY += delta_output[time]
-            gradW, deltaZ = bptt_timestep(time, deltaY)
-            deltaX[time], deltaY = deltaZ[:self.inputs], deltaZ[self.inputs:]
+        # gradient of the cost wrt the weights: dC/dW
+        self.gradients = np.zeros_like(self.weights)
+        # gradient of the cost wrt to biases: dC/db
+        self.nabla_b = self.error[-1].sum(axis=0)
+        # the gradient flowing backwards in time
+        error = np.zeros_like(self.error[-1])
+        # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
+        delta_X = np.zeros_like(self.inputs)
 
-            self.grad_w += gradW
+        for time in range(self.time-1, -1, -1):
+            grad_R, delta_X[time], error = bptt_timestep(time, self.error[time], error)
+            self.gradients += grad_R
+            # self.nabla_b += gradient.sum(axis=0)
 
-        return deltaX.transpose(1, 0, 2)
+        return delta_X.transpose(1, 0, 2)
+
+
+class EchoLayer(RLayer):
+    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False,
+                 p=0.1):
+        RLayer.__init__(self, brain, inputs, neurons, position, activation, return_seq)
+        self.weights = np.random.binomial(1., p, size=self.weights.shape).astype(floatX)
+        self.weights *= np.random.randn(*self.weights.shape)  # + 1.)
+        self.trainable = False
 
     def weight_update(self):
-        self.weights -= self.brain.eta * self.grad_w
-
-    def predict(self, stimuli: np.ndarray) -> np.ndarray:
         pass
 
-    def shuffle(self) -> None:
-        pass
+    def get_weights(self, unfold=True):
+        return np.array([[]])
 
+    def set_weights(self, w, fold=True):
+        pass
 
 class Experimental:
 
@@ -717,6 +788,9 @@ class Experimental:
             self.velocity = np.zeros_like(self.filters)
             print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
                   .format(self.inshape, self.outshape, position))
+
+            from scipy import convolve
+            self.convop = convolve
 
         def feedforward(self, questions):
             self.inputs = questions
