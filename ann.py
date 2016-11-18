@@ -21,32 +21,21 @@ import abc
 
 import numpy as np
 
-from csxdata.utilities.misc import niceround
-
-from .brainforge.layers import InputLayer
-from .util import act_fns, cost_fns
-
 
 class NeuralNetworkBase(abc.ABC):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str):
+
+    def __init__(self, name: str):
         # Referencing the data wrapper on which we do the learning
-        self.data = data
-        self.fanin, self.outsize = data.neurons_required
-
         self.name = name
-        self.N = data.N
-
-        # Parameters required for SGD
-        self.eta = eta
-        self.lmbd1 = lmbd1
-        self.lmbd2 = lmbd2
-        self.mu = mu
-
         # Containers and self-describing variables
         self.layers = []
         self.architecture = []
         self.age = 0
-        self.name = ""
+        self.m = 0
+        self.cost = None
+        self.lmbd1 = 0.0
+        self.lmbd2 = 0.0
+        self.mu = 0.0
 
     @abc.abstractmethod
     def fit(self, batch_size, epochs): raise NotImplementedError
@@ -66,27 +55,21 @@ class NeuralNetworkBase(abc.ABC):
 
 class Network(NeuralNetworkBase):
 
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost, name=""):
+    def __init__(self, input_shape, name=""):
+        from .brainforge.layers import InputLayer
+        NeuralNetworkBase.__init__(self, name)
 
-        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, name)
-
+        self.layers.append(InputLayer(self, shape=input_shape))
         self.m = 0  # Batch size goes here
-
-        if isinstance(cost, str):
-            self.cost = cost_fns[cost]
-        else:
-            self.cost = cost
-
-        self.layers.append(InputLayer(brain=self, inshape=self.fanin))
-        self.architecture.append("In: {}".format(self.fanin))
-        self.predictor = None
-        self.encoder = None
-
         self._finalized = False
 
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=act_fns.tanh):
+    def add(self, layer):
+        self.layers.append(layer)
+        self.architecture.append(str(layer))
+
+    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation="tanh"):
         from .brainforge.layers import Experimental
         fshape = [self.fanin[0]] + list(fshape)
         args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
@@ -145,9 +128,15 @@ class Network(NeuralNetworkBase):
         self._add_recurrent(neurons, activation, return_seq, echo=True, p=p)
 
     def finalize(self, cost, optimizer="sgd", lambda1=0.0, lambda2=0.0, mu=0.0):
+        from .util import cost_fns as costs
+
         if optimizer != "sgd":
             raise RuntimeError("Only SGD is supported at the moment!")
-        self.cost = cost_fns[cost] if isinstance(cost, str) else cost
+
+        for layer in self.layers:
+            layer.connect(self)
+
+        self.cost = costs[cost] if isinstance(cost, str) else cost
         self.lmbd1 = lambda1
         self.lmbd2 = lambda2
         self.mu = mu

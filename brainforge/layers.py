@@ -3,43 +3,42 @@ import warnings
 
 import numpy as np
 
-from ..util import act_fns
-from ..util import sigmoid, tanh
-from ..util import l1term, l2term, outshape, calcsteps, white, white_like
-
-from csxdata import floatX
-from csxdata.utilities.vectorops import maxpool, ravel_to_matrix as rtm
+from ..util import white, white_like, sigmoid
 
 
-class _LayerBase(abc.ABC):
+class Layer(abc.ABC):
     """Abstract base class for all layer type classes"""
-    def __init__(self, brain, position, activation):
-        self.brain = brain
-        self.position = position
+    def __init__(self, activation):
+
+        from ..util import act_fns as activations
+
+        self.brain = None
         self.inputs = None
         self.trainable = True
+        self.finalized = False
         if isinstance(activation, str):
-            self.activation = act_fns[activation]
+            self.activation = activations[activation]
         else:
             self.activation = activation
 
-    @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: pass
+    def connect(self, to, inputs):
+        self.brain = to
+        self.inputs = inputs
 
     @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray: pass
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
-    def backpropagation(self) -> np.ndarray: pass
+    def predict(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
-    def weight_update(self) -> None: pass
+    def backpropagation(self) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
-    def receive_error(self, error_vector: np.ndarray) -> None: pass
+    def receive_error(self, error_vector: np.ndarray) -> None: raise NotImplemented
 
     @abc.abstractmethod
-    def shuffle(self) -> None: pass
+    def shuffle(self) -> None: raise NotImplemented
 
     @abc.abstractmethod
     def get_weights(self, unfold=True): raise NotImplemented
@@ -48,69 +47,38 @@ class _LayerBase(abc.ABC):
     def set_weights(self, w, fold=True): raise NotImplemented
 
     @abc.abstractproperty
-    def outshape(self): pass
+    def outshape(self): raise NotImplemented
+
+    @abc.abstractproperty
+    def __str__(self): raise NotImplemented
 
 
-class _VecLayer(_LayerBase):
+class _VecLayer(Layer):
     """Base class for layer types, which operate on tensors
      and are sparsely connected"""
-    def __init__(self, brain, inshape: tuple, fshape: tuple,
-                 stride: int, position: int,
-                 activation):
-        _LayerBase.__init__(self, brain, position, activation)
+    def __init__(self, fshape: tuple, stride: int, activation):
+        Layer.__init__(self, activation)
 
         if len(fshape) != 3:
-            fshape = ("NaN", fshape[0], fshape[1])
+            fshape = (None, fshape[0], fshape[1])
 
-        self.fshape, self.stride = fshape, stride
-
-        self.inshape = inshape
-        self.outshape = outshape(inshape, fshape, stride)
-
-        self.inputs = np.zeros(inshape)
-        self.output = np.zeros(self.outshape)
-        self.error = np.zeros(self.outshape)
-
-        self.coords = calcsteps(inshape, fshape, stride)
+        self.fshape = fshape
+        self.stride = stride
 
     @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def backpropagation(self) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def weight_update(self) -> None: pass
-
-    @abc.abstractmethod
-    def receive_error(self, error_vector: np.ndarray) -> None: pass
-
-    @abc.abstractmethod
-    def shuffle(self) -> None: pass
-
-    @abc.abstractproperty
-    def outshape(self): pass
-
-    @abc.abstractmethod
-    def get_weights(self, unfold=True): raise NotImplemented
-
-    @abc.abstractmethod
-    def set_weights(self, w, fold=True): raise NotImplemented
+    def connect(self, to, inputs): raise NotImplemented
 
 
-class _FFLayer(_LayerBase):
+class _FFLayer(Layer):
     """Base class for the fully connected layer types"""
-    def __init__(self, brain, neurons: int, position: int, activation):
-        _LayerBase.__init__(self, brain, position, activation)
+    def __init__(self, neurons: int, activation):
+        Layer.__init__(self, activation)
 
         self.neurons = neurons
         self.inputs = None
 
-        self.output = np.zeros((neurons,))
-        self.error = np.zeros((neurons,))
+        self.output = None
+        self.error = None
 
         self.weights = None
         self.biases = None
@@ -118,269 +86,56 @@ class _FFLayer(_LayerBase):
         self.velocity = None
 
     @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def backpropagation(self) -> np.ndarray: pass
-
-    @abc.abstractmethod
-    def weight_update(self) -> None: pass
-
-    @abc.abstractmethod
-    def receive_error(self, error_vector: np.ndarray) -> None: pass
+    def connect(self, to, inputs): raise NotImplemented
 
     def shuffle(self) -> None:
         self.weights = white_like(self.weights)
         self.biases = np.zeros_like(self.biases)
 
     def get_weights(self, unfold=True):
-        return self.weights.ravel() if unfold else self.weights
+        if unfold:
+            return np.concatenate(self.weights.ravel(), self.biases.ravel())
+        return [self.weights, self.biases]
 
     def set_weights(self, w, fold=True):
-        self.weights = w.reshape(self.weights.shape) if fold else w
-
-    @property
-    def outshape(self):
-        return self.neurons
-
-
-class DenseLayer(_FFLayer):
-    """Just your regular Densely Connected Layer
-
-    Aka Dense (Keras), Fully Connected, Feedforward, etc.
-    Elementary building block of the Multilayer Perceptron.
-    """
-    def __init__(self, brain, inputs, neurons, position, activation):
-        _FFLayer.__init__(self, brain=brain,
-                          neurons=neurons, position=position,
-                          activation=activation)
-
-        self.weights = white(int(inputs), int(neurons))
-        self.biases = np.zeros((1, neurons), dtype=float)
-        if self.brain.mu:
-            self.gradients = np.zeros_like(self.weights)
-            self.velocity = np.zeros_like(self.weights)
-
-    def feedforward(self, questions):
-        """
-        Transforms the input matrix with a weight matrix.
-
-        :param questions: numpy.ndarray of shape (lessons, prev_layer_output)
-        :return: numpy.ndarray: transformed matrix
-        """
-        self.inputs = rtm(questions)
-        self.output = self.predict(questions)
-        return self.output
-
-    def predict(self, questions):
-        """
-        Tranfsorms an input with the weights.
-
-        This method has no side-effects. Used in prediction and testing.
-
-        :param questions:
-        :return:
-        """
-        return self.activation(np.dot(rtm(questions), self.weights) + self.biases)
-
-    def backpropagation(self):
-        """
-        Backpropagates the errors.
-        Calculates gradients of the weights, then
-        returns the previous layer's error.
-
-        :return: numpy.ndarray
-        """
-        if self.brain.mu:
-            self.velocity *= self.brain.mu
-            self.velocity += self.gradients * (self.brain.eta / self.brain.m)
-        # (dC / dW) = error * (dZ / dW), where error = (dMSE / dA) * (dA / dZ)
-        self.gradients = np.dot(self.inputs.T, self.error)
-        # (dC / dX) = error * (dZ / dA_), where A_ is the previous layer's output
-        return np.dot(self.error, self.weights.T)
-
-    def weight_update(self):
-        """
-        Performs Stochastic Gradient Descent by subtracting a portion of the
-        calculated gradients from the weights and biases.
-
-        :return: None
-        """
-
-        def apply_weight_decay():
-            if self.brain.lmbd2:
-                l2 = l2term(self.brain.eta, self.brain.lmbd2, self.brain.N)
-                self.weights *= l2
-            if self.brain.lmbd1:
-                l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-                self.weights -= l1 * np.sign(self.weights)
-
-        def descend_on_velocity():
-            np.subtract(self.weights, self.velocity + self.gradients * eta,
-                        out=self.weights)
-
-        def descend_on_gradient():
-            np.subtract(self.weights, self.gradients * eta,
-                        out=self.weights)
-
-        def modify_biases():
-            np.subtract(self.biases, np.mean(self.error, axis=0) * eta,
-                        out=self.biases)
-
-        eta = self.brain.eta / self.brain.m
-        apply_weight_decay()
-        if self.brain.mu:
-            descend_on_velocity()
+        if fold:
+            self.weights = w[0]
+            self.biases = w[1]
         else:
-            descend_on_gradient()
-        modify_biases()
-
-    def receive_error(self, error):
-        """
-        Saves the received error matrix.
-
-        The received matrix should not be folded, since FFLayer should only be
-        followed by FFLayer.
-
-        :param error: numpy.ndarray: 2D matrix of errors
-        :return: None
-        """
-        self.error = rtm(error) * self.activation.derivative(self.output)
-
-    def get_weights(self, unfold=True):
-        return self.weights.ravel() if unfold else self.weights
-
-    def set_weights(self, w, fold=True):
-        self.weights = w.reshape(self.weights.shape) if fold else w
-
-
-class DropOut(DenseLayer):
-    def __init__(self, brain, inputs, neurons, dropout, position, activation):
-        DenseLayer.__init__(self, brain, inputs, neurons, position, activation)
-
-        self.dropchance = 1 - dropout
-        self.mask = None
-
-    def feedforward(self, questions):
-        self.inputs = rtm(questions)
-        self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
-        Z = (np.dot(self.inputs, self.weights) + self.biases) * self.mask
-        self.output = self.activation(Z)
-        return self.output
-
-    def predict(self, question):
-        return DenseLayer.predict(self, question) * self.dropchance
-
-    def backpropagation(self):
-
-        if self.brain.mu:
-            self.velocity += self.gradients
-        self.gradients = (np.dot(self.inputs.T, self.error) / self.brain.m) * self.mask
-
-        return np.dot(self.error, self.weights.T * self.mask.T)
-
-
-class InputLayer(_LayerBase):
-
-    def __init__(self, brain, inshape):
-        _LayerBase.__init__(self, brain, position=0, activation="linear")
-        self.neurons = inshape
-        self.trainable = False
-
-    def feedforward(self, questions):
-        """
-        Passes the unmodified input matrix
-
-        :param questions: numpy.ndarray
-        :return: numpy.ndarray
-        """
-        self.inputs = self.output = questions
-        return questions
-
-    def predict(self, stimuli):
-        """
-        Passes the unmodified input matrix.
-
-        This method has no side-effects. Used in prediction and testing.
-
-        :param stimuli: numpy.ndarray
-        :return: numpy.ndarray
-        """
-        self.inputs = stimuli
-        return stimuli
-
-    def backpropagation(self): pass
-
-    def weight_update(self): pass
-
-    def receive_error(self, error_vector: np.ndarray): pass
-
-    def shuffle(self): pass
-
-    def get_weights(self, unfold=True):
-        return None
-
-    def set_weights(self, w, fold=True):
-        pass
+            sw = self.weights
+            self.weights = w[:sw.size].reshape(sw.shape)
+            self.biases = w[sw.size:].reshape(self.biases.shape)
 
     @property
     def outshape(self):
         return self.neurons
 
-    @property
-    def weights(self):
-        warnings.warn("Queried weights of an InputLayer!", RuntimeWarning)
-        return None
 
+class _Recurrent(_FFLayer):
 
-class Recurrent(_FFLayer):
-
-    def __init__(self, brain, inputs, neurons, position, activation, return_seq):
-        _FFLayer.__init__(self, brain, neurons, position, activation)
-        self.Z = inputs + neurons
-        self.cache = self.Cache(inputs, neurons)
+    def __init__(self, neurons, activation, return_seq):
+        _FFLayer.__init__(self, neurons, activation)
         self.time = 0
         self.return_seq = return_seq
 
-        self.weights = None
-        self.biases = None
-        self.gradients = None
         self.nabla_b = None
-        self.velocity = None
+        self.cache = None
+
+    def feedforward(self, stimuli: np.ndarray):
+        self.inputs = stimuli.transpose(1, 0, 2)
+        self.time = self.inputs.shape[0]
+        self.cache.reset(batch_size=self.brain.m, time=self.time)
+        return np.zeros((self.time, self.brain.m, self.neurons))
+
+    @abc.abstractmethod
+    def connect(self, to, inputs): pass
 
     def receive_error(self, error_matrix: np.ndarray):
         if self.return_seq:
             self.error = error_matrix.transpose(1, 0, 2)
         else:
-            self.error = np.zeros((self.time, self.brain.m, self.neurons), dtype=floatX)
+            self.error = np.zeros((self.time, self.brain.m, self.neurons))
             self.error[-1] += error_matrix
-
-    def weight_update(self) -> None:
-        eta = self.brain.eta / self.brain.m
-
-        if self.brain.mu:
-            self.velocity *= self.brain.mu
-            self.velocity += self.gradients * eta
-            self.weights -= self.velocity
-            # self.biases -= eta * self.nabla_b
-        else:
-            self.weights -= eta * self.gradients
-            # self.biases -= eta * self.nabla_b
-
-    @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray:
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def backpropagation(self) -> np.ndarray:
-        raise NotImplementedError
 
     @property
     def outshape(self):
@@ -417,7 +172,7 @@ class Recurrent(_FFLayer):
 
             self.t = time
             self.m = batch_size
-            self.innards = np.zeros((self.k, time, self.m, self.n), dtype=floatX)
+            self.innards = np.zeros((self.k, time, self.m, self.n))
             self.Zs = np.zeros((self.t, self.m, self.Z))
 
         def set_z(self, value):
@@ -444,158 +199,170 @@ class Recurrent(_FFLayer):
             self.assertkey(key)
             if key == "Z":
                 self.Zs = np.zeros((self.t, self.m, self.Z))
-            self[key] = np.zeros((self.m, self.n), dtype=floatX)
+            self[key] = np.zeros((self.m, self.n))
 
 
-class LSTM(Recurrent):
+class InputLayer(Layer):
 
-    def __init__(self, brain, neurons, inputs, position, return_seq):
-        Recurrent.__init__(self, brain, inputs, neurons, position, return_seq=return_seq, activation="tanh")
+    def __init__(self, shape):
+        Layer.__init__(self, activation="linear")
+        self.inputs = shape
+        self.neurons = shape
+        self.trainable = False
 
-        self.G = 3 * neurons  # size of 3 gates -> needed for slicing
+    def connect(self, to, inputs): pass
 
-        self.weights = white(self.Z, neurons * 4)
-        self.biases = white(1, neurons * 4)
+    def feedforward(self, questions):
+        """
+        Passes the unmodified input matrix
 
-        self.nabla_b = np.zeros_like(self.biases)
+        :param questions: numpy.ndarray
+        :return: numpy.ndarray
+        """
+        self.inputs = self.output = questions
+        return questions
 
-        if self.brain.mu:
-            self.gradients = np.zeros_like(self.weights)
-            self.velocity = np.zeros_like(self.weights)
+    def predict(self, stimuli):
+        """
+        Passes the unmodified input matrix.
 
-    def feedforward(self, X: np.ndarray):
+        This method has no side-effects. Used in prediction and testing.
 
-        def timestep(Z, C):
-            preact = Z.dot(self.weights) + self.biases
-            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
-            cand = tanh(preact[self.G:])
-            C = C * f + i * cand
-            thC = tanh(C)
-            h = thC * o
-            return h, C, (thC, f, i, o, cand)
+        :param stimuli: numpy.ndarray
+        :return: numpy.ndarray
+        """
+        self.inputs = stimuli
+        return stimuli
 
-        self.inputs = np.transpose(X, (1, 0, 2))
-        self.time = self.inputs.shape[0]
-        self.cache.reset(time=self.time)
+    def backpropagation(self): pass
 
-        output = np.zeros(self.outshape)
-        state = np.zeros(self.outshape)
+    def receive_error(self, error_vector: np.ndarray): pass
 
-        for t in range(self.time):
-            concatenated_inputs = np.concatenate((X[t], output), axis=1)
-            output, state, cache = timestep(concatenated_inputs, state)
+    def shuffle(self): pass
 
-            self.cache["outputs"][t] = output
-            self.cache["states"][t] = state
-            self.cache["tanh states"][t] = cache[0]
-            self.cache["gate forget"][t] = cache[1]
-            self.cache["gate input"][t] = cache[2]
-            self.cache["gate output"][t] = cache[3]
-            self.cache["candidates"][t] = cache[4]
-            self.cache["Z"][t] = concatenated_inputs
+    def get_weights(self, unfold=True):
+        return None
 
-        if self.return_seq:
-            self.output = self.cache["outputs"].transpose(1, 0, 2)
-            return self.output
-        else:
-            self.output = self.cache["outputs"][-1]
-            return self.output
+    def set_weights(self, w, fold=True):
+        pass
 
-    def predict(self, stimuli: np.ndarray):
+    @property
+    def outshape(self):
+        return self.inputs
 
-        def timestep(z, C):
-            """
-            One step in time
+    @property
+    def weights(self):
+        warnings.warn("Queried weights of an InputLayer!", RuntimeWarning)
+        return None
 
-            Where
-            f, i, o are the forget gate, input gate and output gate activations.
-            f determines how much information we forget from the previous cell state (0.0 means forget all)
-            i determines how much information we add to the current cell state from the z stack.
-            o determines how much information we provide as layer output from the cell state.
-            candidate is a cell state candidate, it is added to cell state after appliing i to it.
-            :param z: the stack: current input concatenated with the output from the previous timestep
-            :param C: the cell state from the previous timestep
-            """
-            # Calculate the gate activations
-            preact = z.dot(self.weights)
-            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
-            # Calculate the cell state candidate
-            candidate = tanh(preact[self.G:])
-            # Apply forget gate to the previus cell state receives as a parameter
-            # Apply input gate to cell state candidate, then update cell state
-            C = C * f + i * candidate
-            # Apply output gate to tanh of cell state. This is the layer output at timestep <t>
-            return o * tanh(C)
+    def __str__(self):
+        return str(self.neurons)
 
-        # Initialize cell state and layer outputs to all 0s
-        state = np.zeros(self.outshape)
-        outputs = np.zeros((self.time, self.brain.m, self.neurons))
-        # Transposition is needed so timestep becomes dim0, 4 compatibility with keras and csxdata
-        stimuli = np.transpose(stimuli, (1, 0, 2))
-        for time, inputs in enumerate(stimuli):
-            stack = np.column_stack((inputs, outputs[-1]))
-            outputs[time], state = timestep(stack, state)
 
-        if self.return_seq:
-            return outputs.transpose(1, 0, 2)
-        else:
-            return outputs[-1]
+class DenseLayer(_FFLayer):
+    """Just your regular Densely Connected Layer
+
+    Aka Dense (Keras), Fully Connected, Feedforward, etc.
+    Elementary building block of the Multilayer Perceptron.
+    """
+
+    def __init__(self, neurons, activation):
+        _FFLayer.__init__(self,  neurons=neurons, activation=activation)
+
+    def connect(self, to, inputs):
+        pass
+
+    def feedforward(self, questions):
+        """
+        Transforms the input matrix with a weight matrix.
+
+        :param questions: numpy.ndarray of shape (lessons, prev_layer_output)
+        :return: numpy.ndarray: transformed matrix
+        """
+        self.inputs = questions
+        self.output = self.predict(questions)
+        return self.output
+
+    def predict(self, questions):
+        """
+        Tranfsorms an input with the weights.
+
+        This method has no side-effects. Used in prediction and testing.
+
+        :param questions:
+        :return:
+        """
+        return self.activation(np.dot(questions, self.weights) + self.biases)
 
     def backpropagation(self):
+        """
+        Backpropagates the errors.
+        Calculates gradients of the weights, then
+        returns the previous layer's error.
 
-        def bptt_timestep(t, dy, dC):
-            assert dC is 0 and t == self.time
-            cch = self.cache
-            dC = tanh.derivative(cch["states"][t]) * cch["gate output"][t] * dy + dC
-            do = sigmoid.derivative(cch["gate output"][t]) * cch["tanh states"] * dC
-            di = sigmoid.derivative(cch["gate input"][t]) * cch["candidates"] * dC
-            df = sigmoid.derivative(cch["gate forget"][t]) * cch["states"][t-1] * dC
-            dcand = tanh.derivative(cch["cadidates"][t]) * cch["gate input"][t] * dC
-            deltas = np.concatenate((df, di, df, do, dcand), axis=-1)
-            dZ = deltas.dot(self.weights.T)
-            gW = cch["Z"][t].T.dot(deltas)
-            return gW, dZ, dC
+        :return: numpy.ndarray
+        """
+        self.gradients = np.dot(self.inputs.T, self.error)
+        return np.dot(self.error, self.weights.T)
 
-        self.gradients = np.zeros_like(self.weights)
-        dstate = 0.  # so bptt dC receives + 0 @ time == self.time
-        error = self.error[-1]
-        deltaX = np.zeros_like(self.inputs, dtype=floatX)
+    def receive_error(self, error):
+        """
+        Saves the received error matrix.
 
-        for time in range(self.time, -1, -1):
-            if time < self.time:
-                dstate *= self.cache["gate forget"][time+1]
-            error += self.error[time]
-            gradW, deltaZ, dstate = bptt_timestep(time, error, dstate)
-            error = deltaZ[self.neurons:]
-            deltaX[time] = deltaZ[self.neurons:]
-            self.gradients += gradW
-            self.nabla_b += error.sum(axis=0)
+        The received matrix should not be folded, since FFLayer should only be
+        followed by FFLayer.
 
-        return deltaX
+        :param error: numpy.ndarray: 2D matrix of errors
+        :return: None
+        """
+        self.error = error * self.activation.derivative(self.output)
+
+    def __str__(self):
+        return "{}-Dense-{}".format(self.neurons, str(self.activation[:5]))
 
 
-class RLayer(Recurrent):
+class DropOut(_FFLayer):
 
-    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False):
-        Recurrent.__init__(self, brain, inputs, neurons, position, activation, return_seq=return_seq)
+    def __init__(self, neurons, dropchance):
+        _FFLayer.__init__(self, neurons, activation="linear")
+        self.dropchance = 1. - dropchance
+        self.mask = None
+        self.trainable = False
 
-        self.weights = white(self.Z, self.neurons)
-        self.biases = np.zeros((self.neurons,), dtype=floatX)
-        self.nabla_b = np.zeros_like(self.biases)
-        if self.brain.mu:
-            self.gradients = np.zeros_like(self.weights)
-            self.velocity = np.zeros_like(self.weights)
+    def connect(self, to, inputs):
+        pass
+
+    def feedforward(self, questions):
+        self.inputs = questions
+        self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
+        self.output = questions * self.mask
+        return self.output
+
+    def predict(self, question):
+        return question * self.dropchance
+
+    def backpropagation(self):
+        return self.error
+
+    def receive_error(self, error):
+        self.error *= self.mask
+
+    def __str__(self):
+        return "{}-DropOut({})".format(self.neurons, self.dropchance)
+
+
+class RLayer(_Recurrent):
+
+    def connect(self, to, inputs): pass
 
     def feedforward(self, questions: np.ndarray):
-        self.inputs = questions.transpose(1, 0, 2)
-        self.time = self.inputs.shape[0]
-        self.cache.reset(batch_size=self.brain.m, time=self.time)
 
         def timestep(Z):
             return self.activation(Z.dot(self.weights) + self.biases)
 
+        output = _Recurrent.feedforward(self, questions)
         for t in range(self.time):
-            concatenated_inputs = np.concatenate((self.inputs[t], self.cache["outputs"][t-1]), axis=1)
+            concatenated_inputs = np.concatenate((self.inputs[t], output), axis=1)
             output = timestep(concatenated_inputs)
 
             self.cache["Z"][t] = concatenated_inputs
@@ -660,10 +427,132 @@ class RLayer(Recurrent):
 
         return delta_X.transpose(1, 0, 2)
 
+    def __str__(self):
+        return "{}-RLayer-{}".format(self.neurons, str(self.activation))
+
+
+class LSTM(_Recurrent):
+
+    def __init__(self, neurons, activation, return_seq):
+        _Recurrent.__init__(self, neurons, activation, return_seq)
+        self.G = self.neurons * 3
+
+    def connect(self, to, inputs):
+        _Recurrent.connect(to, inputs)
+
+    def feedforward(self, X: np.ndarray):
+
+        def timestep(Z, C):
+            preact = Z.dot(self.weights) + self.biases
+            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
+            cand = self.activation(preact[self.G:])
+            C = C * f + i * cand
+            thC = self.activation(C)
+            h = thC * o
+            return h, C, (thC, f, i, o, cand)
+
+        output = _Recurrent.feedforward(self, X)
+        state = np.zeros((self.time, self.brain.m, self.neurons))
+
+        for t in range(self.time):
+            concatenated_inputs = np.concatenate((X[t], output), axis=1)
+            output, state, cache = timestep(concatenated_inputs, state)
+
+            self.cache["outputs"][t] = output
+            self.cache["states"][t] = state
+            self.cache["tanh states"][t] = cache[0]
+            self.cache["gate forget"][t] = cache[1]
+            self.cache["gate input"][t] = cache[2]
+            self.cache["gate output"][t] = cache[3]
+            self.cache["candidates"][t] = cache[4]
+            self.cache["Z"][t] = concatenated_inputs
+
+        if self.return_seq:
+            self.output = self.cache["outputs"].transpose(1, 0, 2)
+            return self.output
+        else:
+            self.output = self.cache["outputs"][-1]
+            return self.output
+
+    def predict(self, stimuli: np.ndarray):
+
+        def timestep(z, C):
+            """
+            One step in time
+
+            Where
+            f, i, o are the forget gate, input gate and output gate activations.
+            f determines how much information we forget from the previous cell state (0.0 means forget all)
+            i determines how much information we add to the current cell state from the z stack.
+            o determines how much information we provide as layer output from the cell state.
+            candidate is a cell state candidate, it is added to cell state after appliing i to it.
+            :param z: the stack: current input concatenated with the output from the previous timestep
+            :param C: the cell state from the previous timestep
+            """
+            # Calculate the gate activations
+            preact = z.dot(self.weights)
+            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
+            # Calculate the cell state candidate
+            candidate = self.activation(preact[self.G:])
+            # Apply forget gate to the previus cell state receives as a parameter
+            # Apply input gate to cell state candidate, then update cell state
+            C = C * f + i * candidate
+            # Apply output gate to tanh of cell state. This is the layer output at timestep <t>
+            return o * self.activation(C)
+
+        # Initialize cell state and layer outputs to all 0s
+        state = np.zeros(self.outshape)
+        outputs = np.zeros((self.time, self.brain.m, self.neurons))
+        # Transposition is needed so timestep becomes dim0, 4 compatibility with keras and csxdata
+        stimuli = np.transpose(stimuli, (1, 0, 2))
+        for time, inputs in enumerate(stimuli):
+            stack = np.concatenate((inputs, outputs[-1]), axis=1)
+            outputs[time], state = timestep(stack, state)
+
+        if self.return_seq:
+            return outputs.transpose(1, 0, 2)
+        else:
+            return outputs[-1]
+
+    def backpropagation(self):
+
+        def bptt_timestep(t, dy, dC):
+            assert dC is 0 and t == self.time
+            cch = self.cache
+            dC = self.activation.derivative(cch["states"][t]) * cch["gate output"][t] * dy + dC
+            do = sigmoid.derivative(cch["gate output"][t]) * cch["tanh states"] * dC
+            di = sigmoid.derivative(cch["gate input"][t]) * cch["candidates"] * dC
+            df = sigmoid.derivative(cch["gate forget"][t]) * cch["states"][t-1] * dC
+            dcand = self.activation.derivative(cch["cadidates"][t]) * cch["gate input"][t] * dC
+            deltas = np.concatenate((df, di, df, do, dcand), axis=-1)
+            dZ = deltas.dot(self.weights.T)
+            gW = cch["Z"][t].T.dot(deltas)
+            return gW, dZ, dC
+
+        self.gradients = np.zeros_like(self.weights)
+        dstate = 0.  # so bptt dC receives + 0 @ time == self.time
+        error = self.error[-1]
+        deltaX = np.zeros_like(self.inputs)
+
+        for time in range(self.time, -1, -1):
+            if time < self.time:
+                dstate *= self.cache["gate forget"][time+1]
+            error += self.error[time]
+            gradW, deltaZ, dstate = bptt_timestep(time, error, dstate)
+            error = deltaZ[self.neurons:]
+            deltaX[time] = deltaZ[self.neurons:]
+            self.gradients += gradW
+            self.nabla_b += error.sum(axis=0)
+
+        return deltaX
+
+    def __str__(self):
+        return "{}-LSTM-{}".format(self.neurons, str(self.activation[:4]))
+
 
 class EchoLayer(RLayer):
-    def __init__(self, brain, inputs, neurons, position, activation, return_seq=False,
-                 p=0.1):
+    def __init__(self, brain, inputs, neurons, position, activation,
+                 return_seq=False, p=0.1):
         RLayer.__init__(self, brain, inputs, neurons, position, activation, return_seq)
         self.weights = np.random.binomial(1., p, size=self.weights.shape).astype(floatX)
         self.weights *= np.random.randn(*self.weights.shape)  # + 1.)
@@ -684,6 +573,9 @@ class EchoLayer(RLayer):
 
     def set_weights(self, w, fold=True):
         pass
+
+    def __str__(self):
+        return "{}-Echo-{}".format(self.neurons, str(self.activation)[:4])
 
 
 class Experimental:
@@ -926,9 +818,9 @@ class Experimental:
         def outshape(self):
             return self.outdim
 
-    class AboLayer(_LayerBase):
+    class AboLayer(Layer):
         def __init__(self, brain, position, activation):
-            _LayerBase.__init__(self, brain, position, activation)
+            Layer.__init__(self, brain, position, activation)
             self.brain = brain
             self.fanin = brain.layers[-1].fanout
             self.neurons = []
