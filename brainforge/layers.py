@@ -381,24 +381,10 @@ class RLayer(_Recurrent):
 
         error = _Recurrent.backpropagate(self, error)
 
-        def bptt_timestep(t, d):
-            """
-            :param t: the timestep indicator
-            :param d: dC/dY_t + dC/dY_t+1, layer output delta plus time delta
-
-            :return: gR: dC/dR @ timestep <t>; dX dC/dX_{t}; dh: state gradient flowing backwards
-            """
-            delta_now = d * self.activation.derivative(self.cache["outputs"][t])
-            gR = self.cache["Z"][t].T.dot(delta_now)
-            dZ = delta_now.dot(self.weights.T)
-            dX = dZ[:, :-self.neurons]
-            dh = dZ[:, -self.neurons:]
-            return gR, dX, dh
-
         # gradient of the cost wrt the weights: dC/dW
         self.nabla_w = np.zeros_like(self.weights)
         # gradient of the cost wrt to biases: dC/db
-        self.nabla_b = (error[-1] * self.activation.derivative(self.output)).sum()
+        self.nabla_b = np.zeros_like(self.biases)
         # the gradient flowing backwards in time
         delta = np.zeros_like(error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
@@ -406,9 +392,14 @@ class RLayer(_Recurrent):
 
         for time in range(self.time-1, -1, -1):
             delta += error[time]
-            grad_R, delta_X[time], delta = bptt_timestep(time, delta)
-            self.nabla_w += grad_R
+            delta *= self.activation.derivative(self.cache["outputs"][time])
+
+            self.nabla_w += self.cache["Z"][time].T.dot(delta)
             self.nabla_b += delta.sum(axis=0)
+
+            delta_Z = delta.dot(self.weights.T)
+            delta_X[time] = delta_Z[:, :-self.neurons]
+            delta = delta_Z[:, -self.neurons:]
 
         return delta_X.transpose(1, 0, 2)
 
