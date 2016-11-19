@@ -14,22 +14,24 @@ class Layer(abc.ABC):
 
         self.brain = None
         self.inputs = None
+        self.output = None
+        self.error = None
+
         self.trainable = True
         self.finalized = False
+
         if isinstance(activation, str):
             self.activation = activations[activation]
         else:
             self.activation = activation
 
+    @abc.abstractmethod
     def connect(self, to, inputs):
         self.brain = to
         self.inputs = inputs
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
-
-    @abc.abstractmethod
-    def predict(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
     def backpropagation(self) -> np.ndarray: raise NotImplemented
@@ -46,10 +48,12 @@ class Layer(abc.ABC):
     @abc.abstractmethod
     def set_weights(self, w, fold=True): raise NotImplemented
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def outshape(self): raise NotImplemented
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def __str__(self): raise NotImplemented
 
 
@@ -75,18 +79,18 @@ class _FFLayer(Layer):
         Layer.__init__(self, activation)
 
         self.neurons = neurons
-        self.inputs = None
-
-        self.output = None
-        self.error = None
 
         self.weights = None
         self.biases = None
-        self.gradients = None
+        self.nabla_w = None
+        self.nabla_b = None
         self.velocity = None
 
     @abc.abstractmethod
-    def connect(self, to, inputs): raise NotImplemented
+    def connect(self, to, inputs):
+        self.nabla_w = np.zeros_like(self.weights)
+        self.nabla_b = np.zeros_like(self.biases)
+        self.velocity = np.zeros_like(self.weights)
 
     def shuffle(self) -> None:
         self.weights = white_like(self.weights)
@@ -115,12 +119,15 @@ class _Recurrent(_FFLayer):
 
     def __init__(self, neurons, activation, return_seq):
         _FFLayer.__init__(self, neurons, activation)
+        self.Z = 0
+
         self.time = 0
         self.return_seq = return_seq
 
         self.nabla_b = None
         self.cache = None
 
+    @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray):
         self.inputs = stimuli.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
@@ -128,7 +135,12 @@ class _Recurrent(_FFLayer):
         return np.zeros((self.time, self.brain.m, self.neurons))
 
     @abc.abstractmethod
-    def connect(self, to, inputs): pass
+    def connect(self, to, inputs):
+        self.weights = white(inputs, self.Z)
+        self.biases = np.zeros((self.Z,))
+
+        _FFLayer.connect(to, inputs)
+        self.cache = self.Cache(inputs, self.neurons)
 
     def receive_error(self, error_matrix: np.ndarray):
         if self.return_seq:
@@ -145,6 +157,7 @@ class _Recurrent(_FFLayer):
             return self.neurons,
 
     class Cache:
+
         def __init__(self, inp, neu):
             self.keys = ("outputs", "tanh states", "gate output", "states",
                          "candidates", "gate input", "gate forget", "Z")
@@ -206,7 +219,6 @@ class InputLayer(Layer):
 
     def __init__(self, shape):
         Layer.__init__(self, activation="linear")
-        self.inputs = shape
         self.neurons = shape
         self.trainable = False
 
@@ -221,18 +233,6 @@ class InputLayer(Layer):
         """
         self.inputs = self.output = questions
         return questions
-
-    def predict(self, stimuli):
-        """
-        Passes the unmodified input matrix.
-
-        This method has no side-effects. Used in prediction and testing.
-
-        :param stimuli: numpy.ndarray
-        :return: numpy.ndarray
-        """
-        self.inputs = stimuli
-        return stimuli
 
     def backpropagation(self): pass
 
@@ -270,7 +270,9 @@ class DenseLayer(_FFLayer):
         _FFLayer.__init__(self,  neurons=neurons, activation=activation)
 
     def connect(self, to, inputs):
-        pass
+        _FFLayer.connect(to, inputs)
+        self.weights = white(self.inputs, self.neurons)
+        self.biases = np.zeros((self.neurons,))
 
     def feedforward(self, questions):
         """
@@ -280,19 +282,8 @@ class DenseLayer(_FFLayer):
         :return: numpy.ndarray: transformed matrix
         """
         self.inputs = questions
-        self.output = self.predict(questions)
+        self.output = self.activation(np.dot(questions, self.weights) + self.biases)
         return self.output
-
-    def predict(self, questions):
-        """
-        Tranfsorms an input with the weights.
-
-        This method has no side-effects. Used in prediction and testing.
-
-        :param questions:
-        :return:
-        """
-        return self.activation(np.dot(questions, self.weights) + self.biases)
 
     def backpropagation(self):
         """
@@ -302,7 +293,8 @@ class DenseLayer(_FFLayer):
 
         :return: numpy.ndarray
         """
-        self.gradients = np.dot(self.inputs.T, self.error)
+        self.nabla_w = np.dot(self.inputs.T, self.error)
+        self.nabla_b = np.sum(self.error, axis=1)
         return np.dot(self.error, self.weights.T)
 
     def receive_error(self, error):
@@ -321,25 +313,23 @@ class DenseLayer(_FFLayer):
         return "{}-Dense-{}".format(self.neurons, str(self.activation[:5]))
 
 
-class DropOut(_FFLayer):
+class DropOut(Layer):
 
-    def __init__(self, neurons, dropchance):
-        _FFLayer.__init__(self, neurons, activation="linear")
+    def __init__(self, dropchance):
+        Layer.__init__(self, activation="linear")
         self.dropchance = 1. - dropchance
         self.mask = None
+        self.neurons = None
         self.trainable = False
 
     def connect(self, to, inputs):
-        pass
+        self.neurons = inputs
 
     def feedforward(self, questions):
         self.inputs = questions
-        self.mask = np.random.uniform(0, 1, self.biases.shape) < self.dropchance
+        self.mask = np.random.uniform(0, 1, self.neurons) < self.dropchance
         self.output = questions * self.mask
         return self.output
-
-    def predict(self, question):
-        return question * self.dropchance
 
     def backpropagation(self):
         return self.error
@@ -347,13 +337,25 @@ class DropOut(_FFLayer):
     def receive_error(self, error):
         self.error *= self.mask
 
+    def get_weights(self, unfold=True): raise NotImplemented
+
+    def set_weights(self, w, fold=True): raise NotImplemented
+
+    def shuffle(self) -> None: raise NotImplemented
+
+    @property
+    def outshape(self):
+        return self.neurons
+
     def __str__(self):
         return "{}-DropOut({})".format(self.neurons, self.dropchance)
 
 
 class RLayer(_Recurrent):
 
-    def connect(self, to, inputs): pass
+    def connect(self, to, inputs):
+        self.Z = inputs + self.neurons
+        _Recurrent.connect(self, to, inputs)
 
     def feedforward(self, questions: np.ndarray):
 
@@ -438,6 +440,9 @@ class LSTM(_Recurrent):
         self.G = self.neurons * 3
 
     def connect(self, to, inputs):
+        self.Z = inputs + self.neurons * 3
+        self.weights = white(inputs, self.Z)
+        self.biases = np.zeros(self.Z)
         _Recurrent.connect(to, inputs)
 
     def feedforward(self, X: np.ndarray):
