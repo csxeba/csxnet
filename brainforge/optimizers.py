@@ -1,9 +1,10 @@
 class SGD:
+
     def __init__(self, eta=0.01, mu=0.0):
         self.eta = eta
         self.mu = mu
 
-    def optimize(self, layer, m):
+    def __call__(self, layer, m):
         eta = self.eta / m
         if self.mu:
             layer.velocity *= self.mu

@@ -15,7 +15,6 @@ class _Layer(abc.ABC):
         self.brain = None
         self.inputs = None
         self.output = None
-        self.error = None
 
         self.trainable = True
         self.connected = False
@@ -33,10 +32,7 @@ class _Layer(abc.ABC):
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
-    def backpropagation(self) -> np.ndarray: raise NotImplemented
-
-    @abc.abstractmethod
-    def receive_error(self, error_vector: np.ndarray) -> None: raise NotImplemented
+    def backpropagate(self, error) -> np.ndarray: raise NotImplemented
 
     @abc.abstractmethod
     def shuffle(self) -> None: raise NotImplemented
@@ -110,7 +106,6 @@ class _FFLayer(_Layer):
             self.weights = w[0]
             self.biases = w[1]
 
-
     @property
     def gradients(self):
         return np.concatenate([self.nabla_w.ravel(), self.nabla_b.ravel()])
@@ -126,14 +121,13 @@ class _FFLayer(_Layer):
 
 class _Recurrent(_FFLayer):
 
-    def __init__(self, neurons, activation, return_seq):
+    def __init__(self, neurons, activation, return_seq=False):
         _FFLayer.__init__(self, neurons, activation)
         self.Z = 0
 
         self.time = 0
         self.return_seq = return_seq
 
-        self.nabla_b = None
         self.cache = None
 
     @abc.abstractmethod
@@ -141,22 +135,24 @@ class _Recurrent(_FFLayer):
         self.inputs = stimuli.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
         self.cache.reset(batch_size=self.brain.m, time=self.time)
-        return np.zeros((self.time, self.brain.m, self.neurons))
+        return np.zeros((self.brain.m, self.neurons))
+
+    @abc.abstractmethod
+    def backpropagate(self, error):
+        if self.return_seq:
+            return error.transpose(1, 0, 2)
+        else:
+            error_tensor = np.zeros((self.time, self.brain.m, self.neurons))
+            error_tensor[-1] = error
+            return error_tensor
 
     @abc.abstractmethod
     def connect(self, to, inshape):
-        self.weights = white(inshape, self.Z)
-        self.biases = np.zeros((self.Z,))
+        self.weights = white(self.Z, self.neurons)
+        self.biases = np.zeros((self.neurons,))
 
-        _FFLayer.connect(to, inshape)
-        self.cache = self.Cache(inshape, self.neurons)
-
-    def receive_error(self, error_matrix: np.ndarray):
-        if self.return_seq:
-            self.error = error_matrix.transpose(1, 0, 2)
-        else:
-            self.error = np.zeros((self.time, self.brain.m, self.neurons))
-            self.error[-1] += error_matrix
+        _FFLayer.connect(self, to, inshape)
+        self.cache = self.Cache(inshape[-1], self.neurons)
 
     @property
     def outshape(self):
@@ -245,9 +241,7 @@ class InputLayer(_Layer):
         self.inputs = self.output = questions
         return questions
 
-    def backpropagation(self): pass
-
-    def receive_error(self, error_vector: np.ndarray): pass
+    def backpropagate(self, error): pass
 
     def shuffle(self): pass
 
@@ -299,29 +293,19 @@ class DenseLayer(_FFLayer):
         self.output = self.activation(np.dot(questions, self.weights) + self.biases)
         return self.output
 
-    def backpropagation(self):
+    def backpropagate(self, error):
         """
         Backpropagates the errors.
         Calculates gradients of the weights, then
         returns the previous layer's error.
 
+        :param error:
         :return: numpy.ndarray
         """
-        self.nabla_w = np.dot(self.inputs.T, self.error)
-        self.nabla_b = np.sum(self.error, axis=0)
-        return np.dot(self.error, self.weights.T)
-
-    def receive_error(self, error):
-        """
-        Saves the received error matrix.
-
-        The received matrix should not be folded, since FFLayer should only be
-        followed by FFLayer.
-
-        :param error: numpy.ndarray: 2D matrix of errors
-        :return: None
-        """
-        self.error = error * self.activation.derivative(self.output)
+        error *= self.activation.derivative(self.output)
+        self.nabla_w = np.dot(self.inputs.T, error)
+        self.nabla_b = np.sum(error, axis=0)
+        return np.dot(error, self.weights.T)
 
     def __str__(self):
         return "{}-Dense-{}".format(self.neurons, str(self.activation)[:5])
@@ -345,11 +329,8 @@ class DropOut(_Layer):
         self.output = questions * self.mask
         return self.output
 
-    def backpropagation(self):
-        return self.error
-
-    def receive_error(self, error):
-        self.error *= self.mask
+    def backpropagate(self, error):
+        return error * self.mask
 
     def get_weights(self, unfold=True): raise NotImplemented
 
@@ -368,7 +349,7 @@ class DropOut(_Layer):
 class RLayer(_Recurrent):
 
     def connect(self, to, inshape):
-        self.Z = inshape + self.neurons
+        self.Z = inshape[-1] + self.neurons
         _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, questions: np.ndarray):
@@ -391,36 +372,23 @@ class RLayer(_Recurrent):
 
         return self.output
 
-    def predict(self, stimuli: np.ndarray) -> np.ndarray:
-        stimuli = stimuli.transpose(1, 0, 2)
-        time, m = stimuli.shape[:2]
+    def backpropagate(self, error):
+        """
+        Backpropagation through time (BPTT)
 
-        def timestep(x, h):
-            Z = np.concatenate((x, h), axis=1)
-            h = self.activation(Z.dot(self.weights) + self.biases)
-            return h
+        :param error: the deltas flowing from the next layer
+        """
 
-        outputs = np.zeros((time, m, self.neurons))
-        for t in range(time):
-            outputs[t] = timestep(stimuli[t], outputs[t-1])
+        error = _Recurrent.backpropagate(self, error)
 
-        if self.return_seq:
-            return outputs.transpose(1, 0, 2)
-        else:
-            return outputs[-1]
-
-    def backpropagation(self):
-        """Backpropagation through time (BPTT)"""
-
-        def bptt_timestep(t, dY, dh):
+        def bptt_timestep(t, d):
             """
             :param t: the timestep indicator
-            :param dY: dC/dY_t -> gradient of the layer output (if any)
-            :param dh: dC/dY_t+1 -> state gradient flowing backwards in time
+            :param d: dC/dY_t + dC/dY_t+1, layer output delta plus time delta
 
             :return: gR: dC/dR @ timestep <t>; dX dC/dX_{t}; dh: state gradient flowing backwards
             """
-            delta_now = (dY + dh) * self.activation.derivative(self.cache["outputs"][t])
+            delta_now = d * self.activation.derivative(self.cache["outputs"][t])
             gR = self.cache["Z"][t].T.dot(delta_now)
             dZ = delta_now.dot(self.weights.T)
             dX = dZ[:, :-self.neurons]
@@ -430,16 +398,17 @@ class RLayer(_Recurrent):
         # gradient of the cost wrt the weights: dC/dW
         self.nabla_w = np.zeros_like(self.weights)
         # gradient of the cost wrt to biases: dC/db
-        self.nabla_b = self.error[-1].sum(axis=0)
+        self.nabla_b = (error[-1] * self.activation.derivative(self.output)).sum()
         # the gradient flowing backwards in time
-        error = np.zeros_like(self.error[-1])
+        delta = np.zeros_like(error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
         delta_X = np.zeros_like(self.inputs)
 
         for time in range(self.time-1, -1, -1):
-            grad_R, delta_X[time], error = bptt_timestep(time, self.error[time], error)
+            delta += error[time]
+            grad_R, delta_X[time], delta = bptt_timestep(time, delta)
             self.nabla_w += grad_R
-            self.nabla_b += error.sum(axis=0)
+            self.nabla_b += delta.sum(axis=0)
 
         return delta_X.transpose(1, 0, 2)
 
@@ -493,47 +462,9 @@ class LSTM(_Recurrent):
             self.output = self.cache["outputs"][-1]
             return self.output
 
-    def predict(self, stimuli: np.ndarray):
+    def backpropagate(self, error):
 
-        def timestep(z, C):
-            """
-            One step in time
-
-            Where
-            f, i, o are the forget gate, input gate and output gate activations.
-            f determines how much information we forget from the previous cell state (0.0 means forget all)
-            i determines how much information we add to the current cell state from the z stack.
-            o determines how much information we provide as layer output from the cell state.
-            candidate is a cell state candidate, it is added to cell state after appliing i to it.
-            :param z: the stack: current input concatenated with the output from the previous timestep
-            :param C: the cell state from the previous timestep
-            """
-            # Calculate the gate activations
-            preact = z.dot(self.weights)
-            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
-            # Calculate the cell state candidate
-            candidate = self.activation(preact[self.G:])
-            # Apply forget gate to the previus cell state receives as a parameter
-            # Apply input gate to cell state candidate, then update cell state
-            C = C * f + i * candidate
-            # Apply output gate to tanh of cell state. This is the layer output at timestep <t>
-            return o * self.activation(C)
-
-        # Initialize cell state and layer outputs to all 0s
-        state = np.zeros(self.outshape)
-        outputs = np.zeros((self.time, self.brain.m, self.neurons))
-        # Transposition is needed so timestep becomes dim0, 4 compatibility with keras and csxdata
-        stimuli = np.transpose(stimuli, (1, 0, 2))
-        for time, inputs in enumerate(stimuli):
-            stack = np.concatenate((inputs, outputs[-1]), axis=1)
-            outputs[time], state = timestep(stack, state)
-
-        if self.return_seq:
-            return outputs.transpose(1, 0, 2)
-        else:
-            return outputs[-1]
-
-    def backpropagation(self):
+        error = _Recurrent.backpropagate(error)
 
         def bptt_timestep(t, dy, dC):
             assert dC is 0 and t == self.time
@@ -548,19 +479,19 @@ class LSTM(_Recurrent):
             gW = cch["Z"][t].T.dot(deltas)
             return gW, dZ, dC
 
-        self.gradients = np.zeros_like(self.weights)
+        self.nabla_w = np.zeros_like(self.weights)
         dstate = 0.  # so bptt dC receives + 0 @ time == self.time
-        error = self.error[-1]
+        delta = error[-1]
         deltaX = np.zeros_like(self.inputs)
 
         for time in range(self.time, -1, -1):
             if time < self.time:
                 dstate *= self.cache["gate forget"][time+1]
-            error += self.error[time]
+            delta += error[time]
             gradW, deltaZ, dstate = bptt_timestep(time, error, dstate)
             error = deltaZ[self.neurons:]
             deltaX[time] = deltaZ[self.neurons:]
-            self.gradients += gradW
+            self.nabla_w += gradW
             self.nabla_b += error.sum(axis=0)
 
         return deltaX
@@ -570,28 +501,17 @@ class LSTM(_Recurrent):
 
 
 class EchoLayer(RLayer):
-    def __init__(self, brain, inputs, neurons, position, activation,
-                 return_seq=False, p=0.1):
-        RLayer.__init__(self, brain, inputs, neurons, position, activation, return_seq)
-        self.weights = np.random.binomial(1., p, size=self.weights.shape).astype(floatX)
-        self.weights *= np.random.randn(*self.weights.shape)  # + 1.)
+
+    def __init__(self, neurons, activation, return_seq=False, p=0.1):
+        RLayer.__init__(self, neurons, activation, return_seq)
+        self.p = p
+
+    def connect(self, to, inshape):
+        RLayer.connect(self, to, inshape)
+        self.weights = np.random.binomial(1., self.p, size=self.weights.shape).astype(float)
+        self.weights *= np.random.randn(*self.weights.shape)
+        self.biases = white_like(self.biases)
         self.trainable = False
-
-    def weight_update(self):
-        pass
-
-    def backpropagation(self):
-        pose = self.position
-        if pose == 1:
-            return None
-        else:
-            return RLayer.backpropagation(self)
-
-    def get_weights(self, unfold=True):
-        return np.array([[]])
-
-    def set_weights(self, w, fold=True):
-        pass
 
     def __str__(self):
         return "{}-Echo-{}".format(self.neurons, str(self.activation)[:4])
@@ -660,9 +580,10 @@ class Experimental:
                         index += 1
             return result.reshape([m] + list(self.outshape))
 
-        def backpropagation(self):
+        def backpropagate(self, error):
             """
             Calculates the error of the previous layer.
+            :param error:
             :return: numpy.ndarray, the errors of the previous layer
             """
             deltas = np.zeros([self.brain.m] + list(self.inshape))
@@ -757,7 +678,7 @@ class Experimental:
             osh = [questions.shape[0]] + list(self.outshape)
             return self.activation(np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1))).reshape(*osh)
 
-        def backpropagation(self):
+        def backpropagate(self, error):
             self.gradients = convolve(np.rot90(self.error, k=2), self.inputs)
             return convolve(self.error, np.rot90(self.filters, k=2))
 
@@ -860,7 +781,7 @@ class Experimental:
         def shuffle(self) -> None:
             pass
 
-        def backpropagation(self) -> np.ndarray:
+        def backpropagate(self, error) -> np.ndarray:
             pass
 
         def weight_update(self) -> None:

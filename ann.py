@@ -146,25 +146,22 @@ class Network:
         return costs
 
     def _fit_batch(self, X, Y, parameter_update=True):
-        self.m = X.shape[0]
-
         self.prediction(X)
-        self.backpropagate(Y)
+        self.backpropagation(Y)
         if parameter_update:
             self._parameter_update()
 
         return self.cost(self.output, Y) / self.m
 
-    def backpropagate(self, Y):
-        self.layers[-1].receive_error(self.cost.derivative(self.layers[-1].output, Y))
-        for layer, prev_layer in zip(self.layers[-1:0:-1], self.layers[-2::-1]):
-            error = layer.backpropagation()
-            prev_layer.receive_error(error)
+    def backpropagation(self, Y):
+        error = self.cost.derivative(self.layers[-1].output, Y)
+        for layer in self.layers[-1:0:-1]:
+            error = layer.backpropagate(error)
 
     def _parameter_update(self):
         for layer in self.layers:
             if layer.trainable:
-                self.optimizer.optimize(layer, self.m)
+                self.optimizer(layer, self.m)
 
     # ---- Methods for forward propagation ----
 
@@ -175,6 +172,7 @@ class Network:
         return np.argmax(self.prediction(X), axis=1)
 
     def prediction(self, X):
+        self.m = X.shape[0]
         for layer in self.layers:
             X = layer.feedforward(X)
         return X

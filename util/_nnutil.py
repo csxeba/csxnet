@@ -50,7 +50,7 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
     numgrads = np.zeros_like(ws)
     perturb = np.copy(numgrads)
 
-    nparams = len(numgrads)
+    nparams = ws.size
     print("Calculating numerical gradients...")
     for i in range(nparams):
         print("\r{0:>{1}} / {2:<}".format(i+1, len(str(nparams)), nparams), end=" ")
@@ -77,7 +77,7 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
 def analytical_gradients(network, X, y):
     anagrads = np.zeros((network.nparams,))
     network.prediction(X)
-    network.backpropagate(y)
+    network.backpropagation(y)
 
     start = 0
     for layer in network.layers:
