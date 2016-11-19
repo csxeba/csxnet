@@ -6,7 +6,7 @@ import numpy as np
 from ..util import white, white_like, sigmoid
 
 
-class Layer(abc.ABC):
+class _Layer(abc.ABC):
     """Abstract base class for all layer type classes"""
     def __init__(self, activation):
 
@@ -57,11 +57,11 @@ class Layer(abc.ABC):
     def __str__(self): raise NotImplemented
 
 
-class _VecLayer(Layer):
+class _VecLayer(_Layer):
     """Base class for layer types, which operate on tensors
      and are sparsely connected"""
     def __init__(self, fshape: tuple, stride: int, activation):
-        Layer.__init__(self, activation)
+        _Layer.__init__(self, activation)
 
         if len(fshape) != 3:
             fshape = (None, fshape[0], fshape[1])
@@ -73,10 +73,10 @@ class _VecLayer(Layer):
     def connect(self, to, inputs): raise NotImplemented
 
 
-class _FFLayer(Layer):
+class _FFLayer(_Layer):
     """Base class for the fully connected layer types"""
     def __init__(self, neurons: int, activation):
-        Layer.__init__(self, activation)
+        _Layer.__init__(self, activation)
 
         self.neurons = neurons
 
@@ -215,10 +215,10 @@ class _Recurrent(_FFLayer):
             self[key] = np.zeros((self.m, self.n))
 
 
-class InputLayer(Layer):
+class InputLayer(_Layer):
 
     def __init__(self, shape):
-        Layer.__init__(self, activation="linear")
+        _Layer.__init__(self, activation="linear")
         self.neurons = shape
         self.trainable = False
 
@@ -313,10 +313,10 @@ class DenseLayer(_FFLayer):
         return "{}-Dense-{}".format(self.neurons, str(self.activation[:5]))
 
 
-class DropOut(Layer):
+class DropOut(_Layer):
 
     def __init__(self, dropchance):
-        Layer.__init__(self, activation="linear")
+        _Layer.__init__(self, activation="linear")
         self.dropchance = 1. - dropchance
         self.mask = None
         self.neurons = None
@@ -414,7 +414,7 @@ class RLayer(_Recurrent):
             return gR, dX, dh
 
         # gradient of the cost wrt the weights: dC/dW
-        self.gradients = np.zeros_like(self.weights)
+        self.nabla_w = np.zeros_like(self.weights)
         # gradient of the cost wrt to biases: dC/db
         self.nabla_b = self.error[-1].sum(axis=0)
         # the gradient flowing backwards in time
@@ -424,7 +424,7 @@ class RLayer(_Recurrent):
 
         for time in range(self.time-1, -1, -1):
             grad_R, delta_X[time], error = bptt_timestep(time, self.error[time], error)
-            self.gradients += grad_R
+            self.nabla_w += grad_R
             self.nabla_b += error.sum(axis=0)
 
         return delta_X.transpose(1, 0, 2)
@@ -823,9 +823,9 @@ class Experimental:
         def outshape(self):
             return self.outdim
 
-    class AboLayer(Layer):
+    class AboLayer(_Layer):
         def __init__(self, brain, position, activation):
-            Layer.__init__(self, brain, position, activation)
+            _Layer.__init__(self, brain, position, activation)
             self.brain = brain
             self.fanin = brain.layers[-1].fanout
             self.neurons = []

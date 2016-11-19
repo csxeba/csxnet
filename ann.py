@@ -21,6 +21,8 @@ import abc
 
 import numpy as np
 
+from .brainforge.layers import _Layer
+
 
 class NeuralNetworkBase(abc.ABC):
 
@@ -55,77 +57,25 @@ class NeuralNetworkBase(abc.ABC):
 
 class Network(NeuralNetworkBase):
 
-    def __init__(self, input_shape, name=""):
+    def __init__(self, input_shape=None, name=""):
         from .brainforge.layers import InputLayer
         NeuralNetworkBase.__init__(self, name)
 
-        self.layers.append(InputLayer(self, shape=input_shape))
         self.m = 0  # Batch size goes here
         self._finalized = False
 
+        self.input_shape = input_shape
+
+        self.layers.append(InputLayer(self))
+        if input_shape is not None:
+            self.layers[-1].connect(to=self, inputs=self.input_shape)
+
     # ---- Methods for architecture building ----
 
-    def add(self, layer):
+    def add(self, layer: _Layer):
+        layer.connect(self, self.layers[-1].outshape)
         self.layers.append(layer)
         self.architecture.append(str(layer))
-
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation="tanh"):
-        from .brainforge.layers import Experimental
-        fshape = [self.fanin[0]] + list(fshape)
-        args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
-        self.layers.append(Experimental.ConvLayer(*args))
-        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation)[:4]))
-        # brain, fshape, fanin, num_filters, stride, position, activation="sigmoid"
-
-    def add_pool(self, pool=2):
-        from .brainforge.layers import Experimental
-        args = (self, self.layers[-1].outshape, (pool, pool), pool, len(self.layers))
-        self.layers.append(Experimental.PoolLayer(*args))
-        self.architecture.append("{} Pool".format(pool))
-        # brain, fanin, fshape, stride, position
-
-    def add_fc(self, neurons, activation="tanh"):
-        from .brainforge.layers import DenseLayer
-        inpts = np.prod(self.layers[-1].outshape)
-        args = (self, inpts, neurons, len(self.layers), activation)
-        self.layers.append(DenseLayer(*args))
-        self.architecture.append("{} Dense: {}".format(neurons, str(activation)[:4]))
-        # brain, inputs, neurons, position, activation
-
-    def add_drop(self, neurons, dropchance=0.25, activation="tanh"):
-        from .brainforge.layers import DropOut
-        args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
-        self.layers.append(DropOut(*args))
-        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
-        # brain, inputs, neurons, dropout, position, activation
-
-    def _add_recurrent(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0, lstm=False):
-        inpts = self.layers[-1].outshape[-1]
-        args = [self, inpts, neurons, len(self.layers), activation, return_seq]
-        if lstm:
-            from .brainforge.layers import LSTM
-            self.layers.append(LSTM(*args))
-            self.architecture.append("{} LSTM: {}".format(neurons, activation[:4]))
-            return
-        if not echo:
-            from .brainforge.layers import RLayer
-            self.layers.append(RLayer(*args))
-            self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
-            # brain, inputs, neurons, time_truncate, position, activation
-        else:
-            from .brainforge.layers import EchoLayer
-            self.layers.append(EchoLayer(*(args + [p])))
-            self.architecture.append("{} Echo({}): {}".format(neurons, p, activation[:4]))
-            # brain, inputs, neurons, time_truncate, position, activation
-
-    def add_reclayer(self, neurons, activation="tanh", return_seq=False):
-        self._add_recurrent(neurons, activation, return_seq)
-
-    def add_lstm(self, neurons, activation="tanh", return_seq=False):
-        self._add_recurrent(neurons, activation, return_seq, lstm=True)
-
-    def add_echo(self, neurons, activation="tanh", return_seq=False, p=0.1):
-        self._add_recurrent(neurons, activation, return_seq, echo=True, p=p)
 
     def finalize(self, cost, optimizer="sgd", lambda1=0.0, lambda2=0.0, mu=0.0):
         from .util import cost_fns as costs
