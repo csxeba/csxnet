@@ -18,7 +18,7 @@ class _Layer(abc.ABC):
         self.error = None
 
         self.trainable = True
-        self.finalized = False
+        self.connected = False
 
         if isinstance(activation, str):
             self.activation = activations[activation]
@@ -26,9 +26,8 @@ class _Layer(abc.ABC):
             self.activation = activation
 
     @abc.abstractmethod
-    def connect(self, to, inputs):
+    def connect(self, to, inshape):
         self.brain = to
-        self.inputs = inputs
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
@@ -70,7 +69,7 @@ class _VecLayer(_Layer):
         self.stride = stride
 
     @abc.abstractmethod
-    def connect(self, to, inputs): raise NotImplemented
+    def connect(self, to, inshape): raise NotImplemented
 
 
 class _FFLayer(_Layer):
@@ -87,7 +86,8 @@ class _FFLayer(_Layer):
         self.velocity = None
 
     @abc.abstractmethod
-    def connect(self, to, inputs):
+    def connect(self, to, inshape):
+        _Layer.connect(self, to, inshape)
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
         self.velocity = np.zeros_like(self.weights)
@@ -98,21 +98,30 @@ class _FFLayer(_Layer):
 
     def get_weights(self, unfold=True):
         if unfold:
-            return np.concatenate(self.weights.ravel(), self.biases.ravel())
+            return np.concatenate((self.weights.ravel(), self.biases.ravel()))
         return [self.weights, self.biases]
 
     def set_weights(self, w, fold=True):
         if fold:
-            self.weights = w[0]
-            self.biases = w[1]
-        else:
             sw = self.weights
             self.weights = w[:sw.size].reshape(sw.shape)
             self.biases = w[sw.size:].reshape(self.biases.shape)
+        else:
+            self.weights = w[0]
+            self.biases = w[1]
+
+
+    @property
+    def gradients(self):
+        return np.concatenate([self.nabla_w.ravel(), self.nabla_b.ravel()])
 
     @property
     def outshape(self):
-        return self.neurons
+        return self.neurons if isinstance(self.neurons, tuple) else (self.neurons,)
+
+    @property
+    def nparams(self):
+        return self.weights.size + self.biases.size
 
 
 class _Recurrent(_FFLayer):
@@ -135,12 +144,12 @@ class _Recurrent(_FFLayer):
         return np.zeros((self.time, self.brain.m, self.neurons))
 
     @abc.abstractmethod
-    def connect(self, to, inputs):
-        self.weights = white(inputs, self.Z)
+    def connect(self, to, inshape):
+        self.weights = white(inshape, self.Z)
         self.biases = np.zeros((self.Z,))
 
-        _FFLayer.connect(to, inputs)
-        self.cache = self.Cache(inputs, self.neurons)
+        _FFLayer.connect(to, inshape)
+        self.cache = self.Cache(inshape, self.neurons)
 
     def receive_error(self, error_matrix: np.ndarray):
         if self.return_seq:
@@ -222,7 +231,9 @@ class InputLayer(_Layer):
         self.neurons = shape
         self.trainable = False
 
-    def connect(self, to, inputs): pass
+    def connect(self, to, inshape):
+        _Layer.connect(self, to, inshape)
+        assert inshape == self.neurons
 
     def feedforward(self, questions):
         """
@@ -248,7 +259,7 @@ class InputLayer(_Layer):
 
     @property
     def outshape(self):
-        return self.inputs
+        return self.neurons if isinstance(self.neurons, tuple) else (self.neurons,)
 
     @property
     def weights(self):
@@ -267,12 +278,15 @@ class DenseLayer(_FFLayer):
     """
 
     def __init__(self, neurons, activation):
+        if isinstance(neurons, tuple):
+            neurons = neurons[0]
         _FFLayer.__init__(self,  neurons=neurons, activation=activation)
 
-    def connect(self, to, inputs):
-        _FFLayer.connect(to, inputs)
-        self.weights = white(self.inputs, self.neurons)
+    def connect(self, to, inshape):
+        assert len(inshape) == 1
+        self.weights = white(inshape[0], self.neurons)
         self.biases = np.zeros((self.neurons,))
+        _FFLayer.connect(self, to, inshape)
 
     def feedforward(self, questions):
         """
@@ -294,7 +308,7 @@ class DenseLayer(_FFLayer):
         :return: numpy.ndarray
         """
         self.nabla_w = np.dot(self.inputs.T, self.error)
-        self.nabla_b = np.sum(self.error, axis=1)
+        self.nabla_b = np.sum(self.error, axis=0)
         return np.dot(self.error, self.weights.T)
 
     def receive_error(self, error):
@@ -310,7 +324,7 @@ class DenseLayer(_FFLayer):
         self.error = error * self.activation.derivative(self.output)
 
     def __str__(self):
-        return "{}-Dense-{}".format(self.neurons, str(self.activation[:5]))
+        return "{}-Dense-{}".format(self.neurons, str(self.activation)[:5])
 
 
 class DropOut(_Layer):
@@ -322,8 +336,8 @@ class DropOut(_Layer):
         self.neurons = None
         self.trainable = False
 
-    def connect(self, to, inputs):
-        self.neurons = inputs
+    def connect(self, to, inshape):
+        self.neurons = inshape
 
     def feedforward(self, questions):
         self.inputs = questions
@@ -353,9 +367,9 @@ class DropOut(_Layer):
 
 class RLayer(_Recurrent):
 
-    def connect(self, to, inputs):
-        self.Z = inputs + self.neurons
-        _Recurrent.connect(self, to, inputs)
+    def connect(self, to, inshape):
+        self.Z = inshape + self.neurons
+        _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, questions: np.ndarray):
 
@@ -439,11 +453,11 @@ class LSTM(_Recurrent):
         _Recurrent.__init__(self, neurons, activation, return_seq)
         self.G = self.neurons * 3
 
-    def connect(self, to, inputs):
-        self.Z = inputs + self.neurons * 3
-        self.weights = white(inputs, self.Z)
+    def connect(self, to, inshape):
+        self.Z = inshape + self.neurons * 3
+        self.weights = white(inshape, self.Z)
         self.biases = np.zeros(self.Z)
-        _Recurrent.connect(to, inputs)
+        _Recurrent.connect(to, inshape)
 
     def feedforward(self, X: np.ndarray):
 

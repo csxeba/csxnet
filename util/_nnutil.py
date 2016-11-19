@@ -57,9 +57,11 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
         perturb[i] += epsilon
 
         network.set_weights(ws + perturb, fold=True)
-        cost1 = network.cost(network.predict_raw(X), y)
+        pred1 = network.prediction(X)
+        cost1 = network.cost(pred1, y)
         network.set_weights(ws - perturb, fold=True)
-        cost2 = network.cost(network.predict_raw(X), y)
+        pred2 = network.prediction(X)
+        cost2 = network.cost(pred2, y)
 
         numgrads[i] = (cost1 - cost2)
         perturb[i] = 0.0
@@ -73,19 +75,16 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
 
 
 def analytical_gradients(network, X, y):
-
-    nparams = sum(np.prod(layer.weights.shape) for layer
-                  in network.layers if layer.trainable)
-    anagrads = np.zeros((nparams,))
-    network._forward_pass(X)
-    network._backward_pass(y)
+    anagrads = np.zeros((network.nparams,))
+    network.prediction(X)
+    network.backpropagate(y)
 
     start = 0
     for layer in network.layers:
         if not layer.trainable:
             continue
-        end = start + np.prod(layer.weights.shape)
-        anagrads[start:end] = layer.gradients.ravel()
+        end = start + layer.nparams
+        anagrads[start:end] = layer.gradients
         start += end
 
     return anagrads
