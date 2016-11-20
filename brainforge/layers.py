@@ -19,6 +19,8 @@ class _Layer(abc.ABC):
         self.trainable = True
         self.connected = False
 
+        self.optimizer = None
+
         if isinstance(activation, str):
             self.activation = activations[activation]
         else:
@@ -79,14 +81,12 @@ class _FFLayer(_Layer):
         self.biases = None
         self.nabla_w = None
         self.nabla_b = None
-        self.velocity = None
 
     @abc.abstractmethod
     def connect(self, to, inshape):
         _Layer.connect(self, to, inshape)
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
-        self.velocity = np.zeros_like(self.weights)
 
     def shuffle(self) -> None:
         self.weights = white_like(self.weights)

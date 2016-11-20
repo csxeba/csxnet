@@ -60,7 +60,7 @@ def xperiment():
     for decade in range(1, 10):
         net.fit(X, Y, 20, 5, monitor=["acc"], validation=petofi.table("testing"))
         print("-"*12)
-        print("Decade: {0:2<} |".format(decade))
+        print("Decade: {0:2<}.5 |".format(decade-1))
         print("-"*12)
         print(speak_to_me(net, petofi))
         net.fit(X, Y, 20, 5, monitor=["acc"], validation=petofi.table("testing"))

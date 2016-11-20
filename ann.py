@@ -23,7 +23,7 @@ import numpy as np
 
 # noinspection PyProtectedMember
 from .brainforge.layers import _Layer
-from .brainforge.optimizers import SGD
+from .brainforge.optimizers import *
 
 
 class Network:
@@ -68,17 +68,13 @@ class Network:
         self.architecture.append(str(layer))
         layer.connected = True
 
-    def finalize(self, cost, optimizer="sgd", eta=0.01, lambda1=0.0, lambda2=0.0, mu=0.0):
+    def finalize(self, cost, optimizer="sgd", eta=0.1):
         from .util import cost_fns as costs
 
-        if optimizer != "sgd":
-            raise RuntimeError("Only SGD is supported at the moment!")
-
-        self.optimizer = SGD(eta, mu)
+        for layer in self.layers:
+            if layer.trainable:
+                layer.optimizer = Adam(layer)
         self.cost = costs[cost] if isinstance(cost, str) else cost
-        self.lmbd1 = lambda1
-        self.lmbd2 = lambda2
-        self.mu = mu
         self._finalized = True
 
     def pop(self):
@@ -159,9 +155,8 @@ class Network:
             error = layer.backpropagate(error)
 
     def _parameter_update(self):
-        for layer in self.layers:
-            if layer.trainable:
-                self.optimizer(layer, self.m)
+        for layer in filter(lambda x: x.trainable, self.layers):
+            layer.optimizer(self.m)
 
     # ---- Methods for forward propagation ----
 
