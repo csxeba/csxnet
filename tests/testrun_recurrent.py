@@ -46,7 +46,7 @@ def build_LSTM(data: Sequence):
 
 def xperiment():
     petofi = pull_petofi_data()
-    net = build_network(petofi)
+    net = build_LSTM(petofi)
     net.describe(verbose=1)
     print("Initial cost: {} acc: {}".format(*net.evaluate(*petofi.table("testing"))))
     print(speak_to_me(net, petofi))

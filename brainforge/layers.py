@@ -414,10 +414,8 @@ class LSTM(_Recurrent):
         self.G = self.neurons * 3
 
     def connect(self, to, inshape):
-        self.Z = inshape + self.neurons * 3
-        self.weights = white(inshape, self.Z)
-        self.biases = np.zeros(self.Z)
-        _Recurrent.connect(to, inshape)
+        self.Z = inshape[-1] + self.neurons * 3
+        _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, X: np.ndarray):
 
@@ -434,7 +432,7 @@ class LSTM(_Recurrent):
         state = np.zeros((self.time, self.brain.m, self.neurons))
 
         for t in range(self.time):
-            concatenated_inputs = np.concatenate((X[t], output), axis=1)
+            concatenated_inputs = np.concatenate((self.inputs[t], output), axis=1)
             output, state, cache = timestep(concatenated_inputs, state)
 
             self.cache["outputs"][t] = output
@@ -466,12 +464,13 @@ class LSTM(_Recurrent):
             df = sigmoid.derivative(cch["gate forget"][t]) * cch["states"][t-1] * dC
             dcand = self.activation.derivative(cch["cadidates"][t]) * cch["gate input"][t] * dC
             deltas = np.concatenate((df, di, df, do, dcand), axis=-1)
+            gb = deltas.sum(axis=0)
             dZ = deltas.dot(self.weights.T)
             gW = cch["Z"][t].T.dot(deltas)
-            return gW, dZ, dC
+            return gW, gb, dZ, dC
 
         self.nabla_w = np.zeros_like(self.weights)
-        dstate = 0.  # so bptt dC receives + 0 @ time == self.time
+        dstate = np.zeros_like(self.outshape)  # so bptt dC receives + 0 @ time == self.time
         delta = error[-1]
         deltaX = np.zeros_like(self.inputs)
 
@@ -479,16 +478,16 @@ class LSTM(_Recurrent):
             if time < self.time:
                 dstate *= self.cache["gate forget"][time+1]
             delta += error[time]
-            gradW, deltaZ, dstate = bptt_timestep(time, error, dstate)
+            gradW, gradb, deltaZ, dstate = bptt_timestep(time, delta, dstate)
             error = deltaZ[self.neurons:]
             deltaX[time] = deltaZ[self.neurons:]
             self.nabla_w += gradW
-            self.nabla_b += error.sum(axis=0)
+            self.nabla_b += gradb
 
         return deltaX
 
     def __str__(self):
-        return "{}-LSTM-{}".format(self.neurons, str(self.activation[:4]))
+        return "{}-LSTM-{}".format(self.neurons, str(self.activation)[:4])
 
 
 class EchoLayer(RLayer):
