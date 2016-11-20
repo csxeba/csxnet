@@ -148,9 +148,6 @@ class _Recurrent(_FFLayer):
 
     @abc.abstractmethod
     def connect(self, to, inshape):
-        self.weights = white(self.Z, self.neurons)
-        self.biases = np.zeros((self.neurons,))
-
         _FFLayer.connect(self, to, inshape)
         self.cache = self.Cache(inshape[-1], self.neurons)
 
@@ -350,6 +347,9 @@ class RLayer(_Recurrent):
 
     def connect(self, to, inshape):
         self.Z = inshape[-1] + self.neurons
+        self.weights = white(self.Z, self.neurons)
+        self.biases = np.zeros((self.neurons,))
+
         _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, questions: np.ndarray):
@@ -409,27 +409,26 @@ class RLayer(_Recurrent):
 
 class LSTM(_Recurrent):
 
-    def __init__(self, neurons, activation, return_seq):
-        _Recurrent.__init__(self, neurons, activation, return_seq)
-        self.G = self.neurons * 3
-
     def connect(self, to, inshape):
-        self.Z = inshape[-1] + self.neurons * 3
+        self.Z = inshape[-1] + self.neurons
+        self.weights = white(self.Z, self.neurons * 4)
+        self.biases = np.zeros((self.neurons * 4,))
         _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, X: np.ndarray):
 
         def timestep(Z, C):
             preact = Z.dot(self.weights) + self.biases
-            f, i, o = np.split(sigmoid(preact[:self.G]), 3)
-            cand = self.activation(preact[self.G:])
+            f, i, o = np.split(sigmoid(preact[:, sum(G)]), G, axis=1)
+            cand = self.activation(preact[:, sum(G):])
             C = C * f + i * cand
             thC = self.activation(C)
             h = thC * o
             return h, C, (thC, f, i, o, cand)
 
+        G = self.neurons, self.neurons*2
         output = _Recurrent.feedforward(self, X)
-        state = np.zeros((self.time, self.brain.m, self.neurons))
+        state = np.zeros((self.brain.m, self.neurons))
 
         for t in range(self.time):
             concatenated_inputs = np.concatenate((self.inputs[t], output), axis=1)
