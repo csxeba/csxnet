@@ -96,9 +96,11 @@ def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
         diffs = []
         start = 0
         for layer in network.layers[1:]:
-            end = start + np.prod(layer.weights.shape)
-            diffs.append(d_vec[start:end].reshape(layer.weights.shape))
-            start += end
+            weight = start + layer.weights.size
+            bias = weight + layer.biases.size
+            diffs.append(d_vec[start:weight].reshape(layer.weights.shape))
+            diffs.append(d_vec[weight:bias].reshape(layer.biases.shape))
+            start = bias
         return diffs
 
     def display_differences(d):

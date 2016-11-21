@@ -421,30 +421,28 @@ class LSTM(_Recurrent):
 
     def feedforward(self, X: np.ndarray):
 
-        def timestep(Z, C):
-            preact = Z.dot(self.weights) + self.biases
-            f, i, o = np.split(sigmoid(preact[:, :self.G]), 3, axis=1)
-            cand = self.activation(preact[:, self.G:])
-            C = C * f + i * cand
-            thC = self.activation(C)
-            h = thC * o
-            return h, C, (thC, f, i, o, cand)
-
         output = _Recurrent.feedforward(self, X)
-        state = np.zeros((self.brain.m, self.neurons))
+        state = np.zeros_like(output)
 
         for t in range(self.time):
-            concatenated_inputs = np.concatenate((self.inputs[t], output), axis=1)
-            output, state, cache = timestep(concatenated_inputs, state)
+            Z = np.concatenate((self.inputs[t], output), axis=1)
+
+            preact = Z.dot(self.weights) + self.biases
+            gforget, ginput, goutput = np.split(sigmoid(preact[:, :self.G]), 3, axis=1)
+            candidate = self.activation(preact[:, self.G:])
+            state *= gforget
+            state += ginput * candidate
+            state_a = self.activation(state)
+            output = state_a * goutput
 
             self.cache["outputs"][t] = output
             self.cache["states"][t] = state
-            self.cache["tanh states"][t] = cache[0]
-            self.cache["gate forget"][t] = cache[1]
-            self.cache["gate input"][t] = cache[2]
-            self.cache["gate output"][t] = cache[3]
-            self.cache["candidates"][t] = cache[4]
-            self.cache["Z"][t] = concatenated_inputs
+            self.cache["tanh states"][t] = state_a
+            self.cache["gate forget"][t] = gforget
+            self.cache["gate input"][t] = ginput
+            self.cache["gate output"][t] = goutput
+            self.cache["candidates"][t] = candidate
+            self.cache["Z"][t] = Z
 
         if self.return_seq:
             self.output = self.cache["outputs"].transpose(1, 0, 2)
@@ -460,6 +458,7 @@ class LSTM(_Recurrent):
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
 
+        doutput = np.zeros_like(error[-1])
         dstate = np.zeros_like(error[-1])
         deltaX = np.zeros_like(self.inputs)
 
@@ -468,12 +467,14 @@ class LSTM(_Recurrent):
         sigprime = sigmoid.derivative
 
         for t in range(-1, -(self.time+1), -1):
-            dstate += error[t] * cch["gate output"][t] * actprime(cch["outputs"][t])
+            doutput += error[t]
+            dstate += doutput * cch["gate output"][t] * actprime(cch["tanh states"][t])
 
             if t == -self.time:
                 dfgate = np.zeros_like(dstate)
             else:
                 dfgate = sigprime(cch["gate forget"][t]) * cch["states"][t-1] * dstate
+
             dcand = actprime(cch["candidates"][t]) * cch["gate input"][t] * dstate
             digate = sigprime(cch["gate input"][t]) * cch["candidates"][t] * dstate
             dogate = sigprime(cch["gate output"][t]) * cch["tanh states"][t] * error[t]

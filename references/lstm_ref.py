@@ -141,6 +141,67 @@ class LSTM:
 
         return dX, dWLSTM, dc0, dh0
 
+    @staticmethod
+    def backwardrw(error_above, cache, dcn=None, dhn=None):
+
+        W = cache['WLSTM']
+        outputs = cache['Hout']
+        gates = cache['IFOGf']
+        gates_net = cache['IFOG']
+        C = cache['C']
+        tC = cache['Ct']
+        X = cache['Hin']
+        c0 = cache['c0']
+        m, time, d = outputs.shape
+        Z = W.shape[0] - d - 1  # -1 due to bias
+
+        # backprop the LSTM
+        dgates = np.zeros(gates_net.shape)
+        dgates_net = np.zeros(gates.shape)
+        dW = np.zeros(W.shape)
+        dHin = np.zeros(X.shape)
+        dC = np.zeros(C.shape)
+        dX = np.zeros((m, time, Z))
+        dh0 = np.zeros((time, d))
+        dc0 = np.zeros((time, d))
+        error = error_above.copy()  # make a copy so we don't have any funny side effects
+        if dcn is not None:
+            dC[m - 1] += dcn.copy()  # carry over nabla_w from later
+        if dhn is not None:
+            error[m - 1] += dhn.copy()
+        for t in reversed(range(m)):
+
+            tanhCt = tC[t]
+            dgates_net[t, :, 2 * d:3 * d] = tanhCt * error[t]
+            # backprop tanh non-linearity first then continue backprop
+            dC[t] += (1 - tanhCt ** 2) * (gates[t, :, 2 * d:3 * d] * error[t])
+
+            if t > 0:
+                dgates_net[t, :, d:2 * d] = C[t - 1] * dC[t]
+                dC[t - 1] += gates[t, :, d:2 * d] * dC[t]
+            else:
+                dgates_net[t, :, d:2 * d] = c0 * dC[t]
+                dc0 = gates[t, :, d:2 * d] * dC[t]
+            dgates_net[t, :, :d] = gates[t, :, 3 * d:] * dC[t]
+            dgates_net[t, :, 3 * d:] = gates[t, :, :d] * dC[t]
+
+            # backprop activation functions
+            dgates[t, :, 3 * d:] = (1 - gates[t, :, 3 * d:] ** 2) * dgates_net[t, :, 3 * d:]
+            y = gates[t, :, :3 * d]
+            dgates[t, :, :3 * d] = (y * (1.0 - y)) * dgates_net[t, :, :3 * d]
+
+            # backprop matrix multiply
+            dW += np.dot(X[t].T, dgates[t])
+            dHin[t] = dgates[t].dot(W.T)
+
+            # backprop the identity transforms into Hin
+            dX[t] = dHin[t, :, 1:Z + 1]
+            if t > 0:
+                error[t - 1, :] += dHin[t, :, Z + 1:]
+            else:
+                dh0 += dHin[t, :, Z + 1:]
+
+        return dX, dW, dc0, dh0
 
 # -------------------
 # TEST CASES
