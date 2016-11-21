@@ -85,7 +85,7 @@ def analytical_gradients(network, X, y):
             continue
         end = start + layer.nparams
         anagrads[start:end] = layer.gradients
-        start += end
+        start = end
 
     return anagrads
 

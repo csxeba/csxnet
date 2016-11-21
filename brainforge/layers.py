@@ -409,6 +409,10 @@ class RLayer(_Recurrent):
 
 class LSTM(_Recurrent):
 
+    def __init__(self, neurons, activation, return_seq=False):
+        _Recurrent.__init__(self, neurons, activation, return_seq)
+        self.G = neurons * 3
+
     def connect(self, to, inshape):
         self.Z = inshape[-1] + self.neurons
         self.weights = white(self.Z, self.neurons * 4)
@@ -419,14 +423,13 @@ class LSTM(_Recurrent):
 
         def timestep(Z, C):
             preact = Z.dot(self.weights) + self.biases
-            f, i, o = np.split(sigmoid(preact[:, sum(G)]), G, axis=1)
-            cand = self.activation(preact[:, sum(G):])
+            f, i, o = np.split(sigmoid(preact[:, :self.G]), 3, axis=1)
+            cand = self.activation(preact[:, self.G:])
             C = C * f + i * cand
             thC = self.activation(C)
             h = thC * o
             return h, C, (thC, f, i, o, cand)
 
-        G = self.neurons, self.neurons*2
         output = _Recurrent.feedforward(self, X)
         state = np.zeros((self.brain.m, self.neurons))
 
@@ -452,36 +455,34 @@ class LSTM(_Recurrent):
 
     def backpropagate(self, error):
 
-        error = _Recurrent.backpropagate(error)
-
-        def bptt_timestep(t, dy, dC):
-            assert dC is 0 and t == self.time
-            cch = self.cache
-            dC = self.activation.derivative(cch["states"][t]) * cch["gate output"][t] * dy + dC
-            do = sigmoid.derivative(cch["gate output"][t]) * cch["tanh states"] * dC
-            di = sigmoid.derivative(cch["gate input"][t]) * cch["candidates"] * dC
-            df = sigmoid.derivative(cch["gate forget"][t]) * cch["states"][t-1] * dC
-            dcand = self.activation.derivative(cch["cadidates"][t]) * cch["gate input"][t] * dC
-            deltas = np.concatenate((df, di, df, do, dcand), axis=-1)
-            gb = deltas.sum(axis=0)
-            dZ = deltas.dot(self.weights.T)
-            gW = cch["Z"][t].T.dot(deltas)
-            return gW, gb, dZ, dC
+        error = _Recurrent.backpropagate(self, error)
 
         self.nabla_w = np.zeros_like(self.weights)
-        dstate = np.zeros_like(self.outshape)  # so bptt dC receives + 0 @ time == self.time
-        delta = error[-1]
+        self.nabla_b = np.zeros_like(self.biases)
+
+        dstate = np.zeros_like(error[-1])
         deltaX = np.zeros_like(self.inputs)
 
-        for time in range(self.time, -1, -1):
-            if time < self.time:
-                dstate *= self.cache["gate forget"][time+1]
-            delta += error[time]
-            gradW, gradb, deltaZ, dstate = bptt_timestep(time, delta, dstate)
-            error = deltaZ[self.neurons:]
-            deltaX[time] = deltaZ[self.neurons:]
-            self.nabla_w += gradW
-            self.nabla_b += gradb
+        cch = self.cache
+        actprime = self.activation.derivative
+        sigprime = sigmoid.derivative
+
+        for t in range(-1, -(self.time+1), -1):
+            dstate += error[t] * cch["gate output"][t] * actprime(cch["outputs"][t])
+
+            dogate = sigprime(cch["gate output"][t]) * cch["tanh states"][t] * error[t]
+            digate = sigprime(cch["gate input"][t]) * cch["candidates"][t] * dstate
+            dfgate = sigprime(cch["gate forget"][t]) * cch["states"][t-1] * dstate
+            dcand = actprime(cch["candidates"][t]) * cch["gate input"][t] * dstate
+            dgates = np.concatenate((dfgate, digate, dogate, dcand), axis=-1)
+
+            self.nabla_b += dgates.sum(axis=0)
+            self.nabla_w += cch["Z"][t].dot(dgates)
+
+            deltaZ = dgates.dot(self.weights.T)
+
+            dstate += deltaZ[:, -self.neurons:] * cch["gate forget"][t]
+            deltaX[t] = deltaZ[:, :-self.neurons]
 
         return deltaX
 

@@ -26,7 +26,8 @@ def build_reference_network(data: Sequence):
 
 def build_network(data: Sequence):
     inshape, outshape = data.neurons_required
-    rnn = Network(input_shape = inshape, name="TestRNN")
+    rnn = Network(input_shape=inshape, name="TestRNN")
+    rnn.add(RLayer(30, activation="tanh", return_seq=True))
     rnn.add(RLayer(30, activation="tanh"))
     rnn.add(DenseLayer(outshape, activation="sigmoid"))
     rnn.finalize("mse")
@@ -37,7 +38,7 @@ def build_network(data: Sequence):
 def build_LSTM(data: Sequence):
     inshape, outshape = data.neurons_required
     rnn = Network(input_shape = inshape, name="TestLSTM")
-    rnn.add(LSTM(30, activation="tanh", return_seq=False))
+    rnn.add(LSTM(20, activation="tanh", return_seq=False))
     rnn.add(DenseLayer(outshape, activation="sigmoid"))
     rnn.finalize("mse")
 
@@ -52,7 +53,7 @@ def xperiment():
     print(speak_to_me(net, petofi))
 
     net.fit(*petofi.table("learning", m=40, shuff=True), epochs=1, verbose=0, shuffle=False)
-    if not net.gradient_check(*petofi.table("testing", m=20)):
+    if not net.gradient_check(*petofi.table("testing", m=10)):
         return
 
     X, Y = petofi.table("learning")

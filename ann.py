@@ -225,7 +225,7 @@ class Network:
                     continue
                 end = start + layer.nparams
                 layer.set_weights(ws[start:end])
-                start += end
+                start = end
         else:
             for w, layer in zip(ws, self.layers):
                 if not layer.trainable:
