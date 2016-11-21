@@ -2,7 +2,7 @@ from csxdata import Sequence, roots
 from csxdata.utilities.helpers import speak_to_me
 
 from csxnet import Network
-from csxnet.brainforge.layers import RLayer, LSTM, DenseLayer, EchoLayer
+from csxnet.brainforge.layers import RLayer, LSTM, DenseLayer
 
 TIMESTEP = 10
 NGRAM = 1
@@ -37,8 +37,8 @@ def build_network(data: Sequence):
 
 def build_LSTM(data: Sequence):
     inshape, outshape = data.neurons_required
-    rnn = Network(input_shape = inshape, name="TestLSTM")
-    rnn.add(LSTM(20, activation="tanh", return_seq=False))
+    rnn = Network(input_shape=inshape, name="TestLSTM")
+    rnn.add(LSTM(10, activation="tanh", return_seq=False))
     rnn.add(DenseLayer(outshape, activation="sigmoid"))
     rnn.finalize("mse")
 
@@ -53,7 +53,7 @@ def xperiment():
     print(speak_to_me(net, petofi))
 
     net.fit(*petofi.table("learning", m=40, shuff=True), epochs=1, verbose=0, shuffle=False)
-    if not net.gradient_check(*petofi.table("testing", m=10)):
+    if not net.gradient_check(*petofi.table("testing", m=5)):
         return
 
     X, Y = petofi.table("learning")

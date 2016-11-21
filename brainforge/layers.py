@@ -470,14 +470,17 @@ class LSTM(_Recurrent):
         for t in range(-1, -(self.time+1), -1):
             dstate += error[t] * cch["gate output"][t] * actprime(cch["outputs"][t])
 
-            dogate = sigprime(cch["gate output"][t]) * cch["tanh states"][t] * error[t]
-            digate = sigprime(cch["gate input"][t]) * cch["candidates"][t] * dstate
-            dfgate = sigprime(cch["gate forget"][t]) * cch["states"][t-1] * dstate
+            if t == -self.time:
+                dfgate = np.zeros_like(dstate)
+            else:
+                dfgate = sigprime(cch["gate forget"][t]) * cch["states"][t-1] * dstate
             dcand = actprime(cch["candidates"][t]) * cch["gate input"][t] * dstate
+            digate = sigprime(cch["gate input"][t]) * cch["candidates"][t] * dstate
+            dogate = sigprime(cch["gate output"][t]) * cch["tanh states"][t] * error[t]
             dgates = np.concatenate((dfgate, digate, dogate, dcand), axis=-1)
 
             self.nabla_b += dgates.sum(axis=0)
-            self.nabla_w += cch["Z"][t].dot(dgates)
+            self.nabla_w += cch["Z"][t].T.dot(dgates)
 
             deltaZ = dgates.dot(self.weights.T)
 
