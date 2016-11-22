@@ -4,7 +4,7 @@ from csxdata.utilities.helpers import speak_to_me
 from csxnet import Network
 from csxnet.brainforge.layers import RLayer, LSTM, DenseLayer
 
-TIMESTEP = 10
+TIMESTEP = 5
 NGRAM = 1
 
 
@@ -53,8 +53,8 @@ def xperiment():
     print(speak_to_me(net, petofi))
 
     net.fit(*petofi.table("learning", m=40, shuff=True), epochs=1, verbose=0, shuffle=False)
-    # if not net.gradient_check(*petofi.table("testing", m=5)):
-    #     return
+    if not net.gradient_check(*petofi.table("testing", m=5)):
+        return
 
     X, Y = petofi.table("learning")
 

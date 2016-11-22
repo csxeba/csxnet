@@ -142,53 +142,55 @@ class LSTM:
         return dX, dWLSTM, dc0, dh0
 
     @staticmethod
-    def backwardrw(error_above, cache, dcn=None, dhn=None):
+    def backwardrw(error_above, cache, dC_next=None, dOut_next=None):
 
         W = cache['WLSTM']
         outputs = cache['Hout']
         gates = cache['IFOGf']
+        I, F, O, cand = np.split(gates, 4, axis=-1)
         gates_net = cache['IFOG']
         C = cache['C']
         tC = cache['Ct']
         X = cache['Hin']
         c0 = cache['c0']
-        m, time, d = outputs.shape
-        Z = W.shape[0] - d - 1  # -1 due to bias
+        time, m, neurons = outputs.shape
+        Z = W.shape[0] - neurons - 1  # -1 due to bias
 
         # backprop the LSTM
         dgates = np.zeros(gates_net.shape)
-        dgates_net = np.zeros(gates.shape)
+        dGates_net = np.zeros(gates.shape)
         dW = np.zeros(W.shape)
         dHin = np.zeros(X.shape)
         dC = np.zeros(C.shape)
-        dX = np.zeros((m, time, Z))
-        dh0 = np.zeros((time, d))
-        dc0 = np.zeros((time, d))
+        dX = np.zeros((time, m, Z))
+        dh0 = np.zeros((m, neurons))
+        dc0 = np.zeros((m, neurons))
         error = error_above.copy()  # make a copy so we don't have any funny side effects
-        if dcn is not None:
-            dC[m - 1] += dcn.copy()  # carry over nabla_w from later
-        if dhn is not None:
-            error[m - 1] += dhn.copy()
-        for t in reversed(range(m)):
+        if dC_next is not None:
+            dC[-1] += dC_next.copy()  # carry over nabla_w from later
+        if dOut_next is not None:
+            error[-1] += dOut_next.copy()
+        for t in reversed(range(time)):
 
-            tanhCt = tC[t]
-            dgates_net[t, :, 2 * d:3 * d] = tanhCt * error[t]
+            dO_net = tC[t] * error[t]
             # backprop tanh non-linearity first then continue backprop
-            dC[t] += (1 - tanhCt ** 2) * (gates[t, :, 2 * d:3 * d] * error[t])
+            dC[t] += (1 - tC[t] ** 2) * (O[t] * error[t])
 
             if t > 0:
-                dgates_net[t, :, d:2 * d] = C[t - 1] * dC[t]
-                dC[t - 1] += gates[t, :, d:2 * d] * dC[t]
+                dF_net = C[t - 1] * dC[t]
+                dC[t - 1] += F[t] * dC[t]
             else:
-                dgates_net[t, :, d:2 * d] = c0 * dC[t]
-                dc0 = gates[t, :, d:2 * d] * dC[t]
-            dgates_net[t, :, :d] = gates[t, :, 3 * d:] * dC[t]
-            dgates_net[t, :, 3 * d:] = gates[t, :, :d] * dC[t]
+                dF_net = c0 * dC[t]
+                dc0 = F[t] * dC[t]
+            dI_net = cand[t] * dC[t]
+            dCand_net = I[t] * dC[t]
+
+            dGates_net[t] = np.concatenate((dI_net, dF_net, dO_net, dCand_net), axis=-1)
 
             # backprop activation functions
-            dgates[t, :, 3 * d:] = (1 - gates[t, :, 3 * d:] ** 2) * dgates_net[t, :, 3 * d:]
-            y = gates[t, :, :3 * d]
-            dgates[t, :, :3 * d] = (y * (1.0 - y)) * dgates_net[t, :, :3 * d]
+            dgates[t, :, 3 * neurons:] = (1 - cand[t] ** 2) * dGates_net[t, :, 3 * neurons:]
+            y = gates[t, :, :3 * neurons]
+            dgates[t, :, :3 * neurons] = (y * (1.0 - y)) * dGates_net[t, :, :3 * neurons]
 
             # backprop matrix multiply
             dW += np.dot(X[t].T, dgates[t])

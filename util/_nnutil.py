@@ -12,10 +12,12 @@ def l2term(eta, lmbd, N):
 
 
 def outshape(inshape: tuple, fshape: tuple, stride: int):
-    """Calculates the shape of an output matrix if a filter of shape
+    """
+    Calculates the shape of an output matrix if a filter of shape
     <fshape> gets slided along a matrix of shape <fanin> with a
     stride of <stride>.
-    Returns x, y sizes of the output matrix"""
+    Returns x, y sizes of the output matrix
+    """
     output = [int((x - ins) / stride) + 1 if (x - ins) % stride == 0 else "NaN"
               for x, ins in zip(inshape[1:3], fshape[1:3])]
     if "NaN" in output:
@@ -24,10 +26,12 @@ def outshape(inshape: tuple, fshape: tuple, stride: int):
 
 
 def calcsteps(inshape: tuple, fshape: tuple, stride: int):
-    """Calculates the coordinates required to slide
+    """
+    Calculates the coordinates required to slide
     a filter of shape <fshape> along a matrix of shape <inshape>
     with a stride of <stride>.
-    Returns a list of coordinates"""
+    Returns a list of coordinates
+    """
     xsteps, ysteps = outshape(inshape, fshape, stride)
 
     startxes = np.arange(xsteps) * stride
@@ -90,25 +94,25 @@ def analytical_gradients(network, X, y):
     return anagrads
 
 
-def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
+def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
 
-    def fold_difference_matrices(d_vec):
+    def fold_difference_matrices(dvec):
         diffs = []
         start = 0
         for layer in network.layers[1:]:
             weight = start + layer.weights.size
             bias = weight + layer.biases.size
-            diffs.append(d_vec[start:weight].reshape(layer.weights.shape))
-            diffs.append(d_vec[weight:bias].reshape(layer.biases.shape))
+            diffs.append(dvec[start:weight].reshape(layer.weights.shape))
+            diffs.append(dvec[weight:bias].reshape(layer.biases.shape))
             start = bias
         return diffs
 
-    def display_differences(d):
-        from PIL import Image
-        d = fold_difference_matrices(d)
-        for n, matrix in enumerate(d, start=1):
-            img = Image.fromarray(matrix, mode="F")
-            img.show()
+    def analyze_difference_matrices(dvec):
+        from matplotlib import pyplot as plt
+        diff = fold_difference_matrices(dvec)
+        for d in diff:
+            plt.matshow(np.atleast_2d(d))
+            plt.show()
 
     def get_results(er):
         if relative_error < 1e-7:
@@ -139,7 +143,7 @@ def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
     passed = get_results(relative_error)
 
     if display:
-        display_differences(diff)
+        analyze_difference_matrices(diff)
 
     return passed
 

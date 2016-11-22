@@ -161,8 +161,8 @@ class _Recurrent(_FFLayer):
     class Cache:
 
         def __init__(self, inp, neu):
-            self.keys = ("outputs", "tanh states", "gate output", "states",
-                         "candidates", "gate input", "gate forget", "Z")
+            self.keys = ("outputs", "gates", "candidates", "states", "tanh states", "Z")
+            self.gateindices = ("gate forget", "gate input", "gate output")
             self.k = len(self.keys)
             self.Z = inp + neu
             self.n = neu
@@ -170,9 +170,10 @@ class _Recurrent(_FFLayer):
             self.t = None
             self.innards = None
             self.Zs = None
+            self.gates = None
 
         def assertkey(self, item):
-            if item not in self.keys:
+            if item not in self.keys and item not in self.gateindices:
                 raise IndexError("There is no cache named {}".format(item))
 
         def reset(self, batch_size=None, time=None):
@@ -187,17 +188,28 @@ class _Recurrent(_FFLayer):
 
             self.t = time
             self.m = batch_size
-            self.innards = np.zeros((self.k, time, self.m, self.n))
+            self.innards = np.zeros((self.k, self.t, self.m, self.n))
             self.Zs = np.zeros((self.t, self.m, self.Z))
+            self.gates = np.zeros((self.t, self.m, self.n*3))
 
         def set_z(self, value):
             assert value.shape == self.Zs.shape
             self.Zs = value
 
+        def get_gate(self, key):
+            gfrom = self.gateindices.index(key) * self.n
+            return self.gates[:, :, gfrom:gfrom+self.n]
+
+        def set_gate(self, key, value):
+            gfrom = self.gateindices.index(key) * self.n
+            self.gates[:, :, gfrom:gfrom+self.n] = value
+
         def __getitem__(self, item):
             self.assertkey(item)
             if item == "Z":
                 return self.Zs
+            if "gate " == item[:5]:
+                return self.get_gate(item)
             return self.innards[self.keys.index(item)]
 
         def __setitem__(self, key, value):
@@ -205,16 +217,18 @@ class _Recurrent(_FFLayer):
             if value == "Z":
                 self.set_z(value)
                 return
+            if key[:5] == "gate ":
+                self.set_gate(key, value)
+                return
+            if key == "gates":
+                if value.shape != (self.m, self.n*3):
+                    raise ValueError("'gates' shape difference: self: {} != {} :value"
+                                     .format((self.m, self.n*3), value.shape))
+                self.gates = value
             if value.shape != (self.m, self.n):
                 raise ValueError("Shapes differ: self: {} != {} :value"
                                  .format((self.m, self.n), value.shape))
             self.innards[self.keys.index(key)] = value
-
-        def __delitem__(self, key):
-            self.assertkey(key)
-            if key == "Z":
-                self.Zs = np.zeros((self.t, self.m, self.Z))
-            self[key] = np.zeros((self.m, self.n))
 
 
 class InputLayer(_Layer):
@@ -424,25 +438,22 @@ class LSTM(_Recurrent):
         output = _Recurrent.feedforward(self, X)
         state = np.zeros_like(output)
 
+        cch = self.cache
+
         for t in range(self.time):
-            Z = np.concatenate((self.inputs[t], output), axis=1)
+            cch["Z"][t] = np.concatenate((self.inputs[t], output), axis=1)
 
-            preact = Z.dot(self.weights) + self.biases
-            gforget, ginput, goutput = np.split(sigmoid(preact[:, :self.G]), 3, axis=1)
-            candidate = self.activation(preact[:, self.G:])
-            state *= gforget
-            state += ginput * candidate
+            preact = cch["Z"][t].dot(self.weights) + self.biases
+            cch["gates"] = sigmoid(preact[:, :self.G])
+            cand = self.activation(preact[:, self.G:])
+            state *= cch["gate forget"]
+            state += cch["gate inputs"] * cand
             state_a = self.activation(state)
-            output = state_a * goutput
+            output = state_a * cch["gate output"]
 
-            self.cache["outputs"][t] = output
-            self.cache["states"][t] = state
-            self.cache["tanh states"][t] = state_a
-            self.cache["gate forget"][t] = gforget
-            self.cache["gate input"][t] = ginput
-            self.cache["gate output"][t] = goutput
-            self.cache["candidates"][t] = candidate
-            self.cache["Z"][t] = Z
+            cch["outputs"][t] = output
+            cch["states"][t] = state
+            cch["tanh states"][t] = state_a
 
         if self.return_seq:
             self.output = self.cache["outputs"].transpose(1, 0, 2)
@@ -458,34 +469,36 @@ class LSTM(_Recurrent):
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
 
-        doutput = np.zeros_like(error[-1])
-        dstate = np.zeros_like(error[-1])
-        deltaX = np.zeros_like(self.inputs)
-
         cch = self.cache
         actprime = self.activation.derivative
-        sigprime = sigmoid.derivative
+
+        dstate = np.zeros_like(error[-1])
+        deltaX = np.zeros_like(self.inputs)
+        deltaZ = np.zeros_like(cch["Z"][0])
 
         for t in range(-1, -(self.time+1), -1):
-            doutput += error[t]
-            dstate += doutput * cch["gate output"][t] * actprime(cch["tanh states"][t])
+            doutput = error[t] + deltaZ[:, -self.neurons:]
+            dstate += (doutput * cch["gate output"][t]) * actprime(cch["tanh states"][t])
 
             if t == -self.time:
                 dfgate = np.zeros_like(dstate)
             else:
-                dfgate = sigprime(cch["gate forget"][t]) * cch["states"][t-1] * dstate
+                dfgate = cch["states"][t-1] * dstate
 
+            digate = cch["candidates"][t] * dstate
+            dogate = cch["tanh states"][t] * error[t]
             dcand = actprime(cch["candidates"][t]) * cch["gate input"][t] * dstate
-            digate = sigprime(cch["gate input"][t]) * cch["candidates"][t] * dstate
-            dogate = sigprime(cch["gate output"][t]) * cch["tanh states"][t] * error[t]
+
             dgates = np.concatenate((dfgate, digate, dogate, dcand), axis=-1)
+            dgates[:, :self.G] *= sigmoid.derivative(cch["gates"][t])
+
+            dstate += dstate * cch["gate forget"][t]
 
             self.nabla_b += dgates.sum(axis=0)
             self.nabla_w += cch["Z"][t].T.dot(dgates)
 
             deltaZ = dgates.dot(self.weights.T)
 
-            dstate += deltaZ[:, -self.neurons:] * cch["gate forget"][t]
             deltaX[t] = deltaZ[:, :-self.neurons]
 
         return deltaX
