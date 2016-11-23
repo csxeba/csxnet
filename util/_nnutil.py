@@ -19,10 +19,10 @@ def outshape(inshape: tuple, fshape: tuple, stride: int):
     Returns x, y sizes of the output matrix
     """
     output = [int((x - ins) / stride) + 1 if (x - ins) % stride == 0 else "NaN"
-              for x, ins in zip(inshape[1:3], fshape[1:3])]
+              for x, ins in zip(inshape, fshape)]
     if "NaN" in output:
-        raise RuntimeError("Shapes not compatible!")
-    return tuple(output)
+        raise RuntimeError("Shapes not compatible!\nin: {}, filter: {}".format(inshape, fshape))
+    return output
 
 
 def calcsteps(inshape: tuple, fshape: tuple, stride: int):
@@ -36,17 +36,23 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
 
     startxes = np.arange(xsteps) * stride
     startys = np.arange(ysteps) * stride
-
     endxes = startxes + fshape[1]
     endys = startys + fshape[2]
 
-    coords = []
+    coords = [[(sx, ex, sy, ey)
+               for sx, ex in zip(startxes, endxes)]
+              for sy, ey in zip(startys, endys)]
 
-    for sy, ey in zip(startys, endys):
-        for sx, ex in zip(startxes, endxes):
-            coords.append((sx, ex, sy, ey))
+    return coords
 
-    return tuple(coords)
+
+def convolve(inputs, filters, stride):
+    filters = rtm(filters)
+    steps = calcsteps(inputs.shape, filters.inputs.shape, stride)
+    rfields = np.array([[np.ravel(stim[start0:end0, start1:end1])
+                         for start0, end0, start1, end1 in steps]
+                        for stim in input])
+    return rfields.dot(filters)
 
 
 def numerical_gradients(network, X, y, epsilon=1e-5):
@@ -156,6 +162,15 @@ def white(*dims):
 
 def white_like(array):
     return white(*array.shape)
+
+
+def rtm(A):
+    """Converts an ndarray to a 2d array (matrix) by keeping the first dimension as the rows
+    and flattening all the other dimensions to columns"""
+    if A.ndim == 2:
+        return A
+    A = np.atleast_2d(A)
+    return A.reshape(A.shape[0], np.prod(A.shape[1:]))
 
 
 class _ActivationFunctionBase(abc.ABC):

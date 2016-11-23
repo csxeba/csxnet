@@ -1,5 +1,5 @@
 from csxnet import Network
-from csxnet.brainforge.layers import DenseLayer
+from csxnet.brainforge.layers import DenseLayer, DropOut
 
 from csxdata import CData, roots, log
 from csxdata.utilities.parsers import mnist_tolearningtable
@@ -22,11 +22,21 @@ def get_dense_network(data):
     return nw
 
 
+def get_drop_net(data):
+    fanin, fanout = data.neurons_required
+    nw = Network(fanin, name="TestDenseNet")
+    nw.add(DenseLayer(30, activation="sigmoid"))
+    nw.add(DropOut(0.5))
+    nw.add(DenseLayer(fanout, activation="sigmoid"))
+    nw.finalize("mse", eta=3.0)
+    return nw
+
+
 def test_ann():
 
     log(" --- CsxNet Brainforge testrun ---")
     mnist = get_mnist_data(mnistpath)
-    net = get_dense_network(mnist)
+    net = get_drop_net(mnist)
     dsc = net.describe()
     log(dsc)
     print(dsc)

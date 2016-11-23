@@ -104,7 +104,10 @@ class Network:
     def fit_csxdata(self, frame, batch_size=20, epochs=10, monitor=(), verbose=1, shuffle=True):
         fanin, outshape = frame.neurons_required
         if fanin != self.layers[0].outshape or outshape != self.layers[-1].outshape:
-            raise RuntimeError("Network configuration incompatible with supplied dataframe!")
+            errstring = "Network configuration incompatible with supplied dataframe!\n"
+            errstring += "fanin: {} <-> InputLayer: {}\n".format(fanin, self.layers[0].outshape)
+            errstring += "outshape: {} <-> Net outshape: {}\n".format(outshape, self.layers[-1].outshape)
+            raise RuntimeError(errstring)
 
         X, Y = frame.table("learning")
         validation = frame.table("testing")

@@ -4,12 +4,9 @@ from csxdata.utilities.helpers import speak_to_me
 from csxnet import Network
 from csxnet.brainforge.layers import RLayer, LSTM, DenseLayer
 
-TIMESTEP = 5
-NGRAM = 1
-
 
 def pull_petofi_data():
-    return Sequence(roots["txt"] + "petofi.txt", n_gram=NGRAM, timestep=TIMESTEP,
+    return Sequence(roots["txt"] + "petofi.txt", n_gram=1, timestep=5,
                     cross_val=0.01)
 
 
@@ -72,5 +69,11 @@ def xperiment():
         print(speak_to_me(net, petofi))
 
 
+def smallrun():
+    petofi = pull_petofi_data()
+    net = build_LSTM(petofi)
+    net.fit(*petofi.table("learning", m=120), epochs=10, verbose=0)
+
+
 if __name__ == '__main__':
-    xperiment()
+    smallrun()

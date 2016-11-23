@@ -3,7 +3,7 @@ import warnings
 
 import numpy as np
 
-from ..util import white, white_like, sigmoid
+from ..util import white, white_like, sigmoid, calcsteps
 
 
 class _Layer(abc.ABC):
@@ -57,17 +57,10 @@ class _Layer(abc.ABC):
 class _VecLayer(_Layer):
     """Base class for layer types, which operate on tensors
      and are sparsely connected"""
-    def __init__(self, fshape: tuple, stride: int, activation):
-        _Layer.__init__(self, activation)
-
-        if len(fshape) != 3:
-            fshape = (None, fshape[0], fshape[1])
-
-        self.fshape = fshape
-        self.stride = stride
 
     @abc.abstractmethod
-    def connect(self, to, inshape): raise NotImplemented
+    def connect(self, to, inshape):
+        _Layer.connect(self, to, inshape)
 
 
 class _FFLayer(_Layer):
@@ -137,6 +130,7 @@ class _Recurrent(_FFLayer):
     def feedforward(self, stimuli: np.ndarray):
         self.inputs = stimuli.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
+        self.Zs, self.gates, self.cache = [], [], []
         return np.zeros((self.brain.m, self.neurons))
 
     @abc.abstractmethod
@@ -295,9 +289,6 @@ class RLayer(_Recurrent):
 
         output = _Recurrent.feedforward(self, questions)
 
-        self.cache = []
-        self.Zs = []
-
         for t in range(self.time):
             Z = np.concatenate((self.inputs[t], output), axis=-1)
             output = self.activation(Z.dot(self.weights) + self.biases)
@@ -368,10 +359,6 @@ class LSTM(_Recurrent):
 
         output = _Recurrent.feedforward(self, X)
         state = np.zeros_like(output)
-
-        self.Zs = []
-        self.gates = []
-        self.cache = []
 
         for t in range(self.time):
             Z = np.concatenate((self.inputs[t], output), axis=1)
@@ -448,6 +435,7 @@ class EchoLayer(RLayer):
 
     def __init__(self, neurons, activation, return_seq=False, p=0.1):
         RLayer.__init__(self, neurons, activation, return_seq)
+        self.trainable = False
         self.p = p
 
     def connect(self, to, inshape):
@@ -455,7 +443,6 @@ class EchoLayer(RLayer):
         self.weights = np.random.binomial(1., self.p, size=self.weights.shape).astype(float)
         self.weights *= np.random.randn(*self.weights.shape)
         self.biases = white_like(self.biases)
-        self.trainable = False
 
     def __str__(self):
         return "{}-Echo-{}".format(self.neurons, str(self.activation)[:4])
@@ -561,146 +548,63 @@ class Experimental:
             return self.outdim
 
     class ConvLayer(_VecLayer):
-        def __init__(self, brain, fshape, inshape, num_filters, stride, position, activation):
-            _VecLayer.__init__(self, brain=brain,
-                               inshape=inshape, fshape=fshape,
-                               stride=stride, position=position,
-                               activation=activation)
+        def __init__(self, nfilters, filterx, filtery, stride=1, activation="relu"):
+            from ..util import convolve
 
-            chain = """TODO: fix convolution. Figure out backprop. Unify backprop and weight update. (?)"""
-            print(chain)
-            self.inputs = np.zeros(self.inshape)
-            self.outdim = num_filters, self.outshape[0], self.outshape[1]
-            self.filters = white(num_filters, np.prod(fshape))
-            self.gradients = np.zeros_like(self.filters)
-            self.velocity = np.zeros_like(self.filters)
-            print("<ConvLayer> created with fanin {} and outshape {} @ position {}"
-                  .format(self.inshape, self.outshape, position))
+            _VecLayer.__init__(self, activation=activation)
 
-            from scipy import convolve
-            self.convop = convolve
+            self.outdim = nfilters, self.outshape[0], self.outshape[1]
+            self.nfilters = nfilters
+            self.fx = filterx
+            self.fy = filtery
+            self.depth = 0
+            self.stride = stride
 
-        def feedforward(self, questions):
-            self.inputs = questions
-            exc = convolve(self.inputs, self.filters, mode="valid")
-            self.output = self.activation(exc)
+            self.error = None
+            self.filters = None
+            self.biases = None
+            self.nabla_w = None
+            self.nabla_b = None
+            self.op = convolve
+
+        def connect(self, to, inshape):
+            _VecLayer.connect(self, to, inshape)
+            ix, iy, depth = inshape
+            self.depth = depth
+
+            self.filters = white(self.nfilters, self.fx * self.fy * depth)
+            self.biases = np.zeros((self.filters,))
+
+        def feedforward(self, X):
+            self.inputs = np.copy(X)
+            out = self.activation(self.op(X, self.filters, self.stride))
+            self.output = out.reshape(self.brain.m, *self.outshape)
             return self.output
-
-        def old_feedforward(self, questions: np.ndarray):
-            """
-            Convolves the inputs with filters. Used in the learning phase
-
-            :param questions: numpy.ndarray, a batch of inputs. Shape should be (lessons, channels, x, y)
-            :return: numpy.ndarray: outsize convolved with filters. Shape should be (lessons, filters, cx, cy)
-            """
-            self.inputs = questions
-
-            # TODO: rethink this! Not working when channel > 1.
-            recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
-                                   for start0, end0, start1, end1 in self.coords]
-                                  for qstn in range(questions.shape[0])])
-
-            osh = [self.brain.m] + list(self.outshape)
-            exc = np.matmul(recfields, self.filters.T)
-            exc = np.transpose(exc, (0, 2, 1)).reshape(osh)
-            self.output = self.activation(exc)
-            return self.output
-
-        def predict(self, questions: np.ndarray):
-            """
-            Convolves the inputs with filters.
-
-            Used in prediction and testing. This method has no side-effects and could be used
-            in multiprocessing. (Hopes die last)
-
-            :param questions: 4D tensor of shape (lessons, channels, x, y)
-            :return: 4D tensor of shape (lessons, filters, cx, cy)
-            """
-            recfields = np.array([[np.ravel(questions[qstn][:, start0:end0, start1:end1])
-                                   for start0, end0, start1, end1 in self.coords]
-                                  for qstn in range(questions.shape[0])])
-            osh = [questions.shape[0]] + list(self.outshape)
-            return self.activation(np.transpose(np.inner(recfields, self.filters), axes=(0, 2, 1))).reshape(*osh)
 
         def backpropagate(self, error):
-            self.gradients = convolve(np.rot90(self.error, k=2), self.inputs)
-            return convolve(self.error, np.rot90(self.filters, k=2))
-
-        def old_backpropagation(self):
-            """
-            Calculates the error of the previous layer.
-
-            :return: numpy.ndarray
-            """
-            if self.position == 1:
-                print("Warning! Backpropagating into the input layer. Bad learning method design?")
-            deltas = np.zeros_like(self.inputs)
-
-            for n in range(self.error.shape[0]):  # -> a batch element in the input 4D-tensor
-                for fnum in range(self.filters.shape[0]):  # fnum -> a filter
-                    errvec = np.ravel(self.error[n, fnum, ...])  # an error sheet flattened, corresponding to a filter
-                    for index, (start0, end0, start1, end1) in enumerate(self.coords):
-                        diff = errvec[index] * self.filters[fnum].reshape(self.fshape)
-                        np.add(deltas[..., start0:end0, start1:end1], diff,
-                               out=deltas[..., start0:end0, start1:end1])
-            return deltas
-
-        def receive_error(self, error_matrix: np.ndarray):
-            """
-            Fold the received error matrix.
-
-            :param error_matrix: numpy.ndarray: backpropagated errors
-            :return: None
-            """
-            self.error = error_matrix.reshape([self.brain.m] + list(self.outshape))
-
-        def weight_update(self):
-            if self.brain.lmbd2:
-                l2 = l2term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-                self.filters *= l2
-            if self.brain.lmbd1:
-                l1 = l1term(self.brain.eta, self.brain.lmbd1, self.brain.N)
-                self.filters -= l1 * np.sign(self.filters)
-
-            np.subtract(self.filters, self.velocity * self.brain.mu + self.gradients, out=self.filters)
-            if self.brain.mu:
-                self.velocity += self.gradients
-
-        def old_weight_update(self):
-            """
-            Updates convolutional filter weights with the calculated gradients.
-
-            :return: None
-            """
-            f, c = self.error.shape[1], self.inputs.shape[1]
-            delta = np.zeros([f] + list(self.fshape))
-            for l in range(self.brain.m):  # lth of m lessons
-                for i in range(f):  # ith filter of f filters
-                    for j in range(c):  # jth input channel of c channels
-                        # Every channel in the input gets convolved with the error matrix of the filter
-                        # these matrices are then summed elementwise.
-                        cvm = convolve(self.inputs[l][j], self.error[l][i], mode="same")
-                        # cvm = sigconvnd(self.inputs[l][j], self.error[l][i], mode="valid")
-                        # eq = np.equal(cvm, cvm_old)
-                        delta[i, j, ...] += cvm  # Averaging over lessons in the batch
-
-            # L2 regularization aka weight decay
-            l2 = l2term(self.brain.eta, self.brain.lmbd, self.brain.N)
-            # Update regularized weights with averaged errors
-            np.add(self.filters * l2, (self.brain.eta / self.brain.m) * delta.reshape(self.filters.shape),
-                   out=self.filters)
-
-        def _getrfields(self, slices: np.ndarray):
-            return np.array([[np.ravel(stim[:, start0:end0, start1:end1])
-                              for start0, end0, start1, end1 in self.coords]
-                             for stim in slices])
+            self.error = error * self.activation.derivative(self.output)
+            roti = np.rot90(self.inputs, k=2)
+            rotf = np.rot90(self.filters, k=2)
+            self.nabla_w = self.op(roti, self.error, self.stride)
+            self.nabla_b = self.error.sum(axis=1)
+            return self.op(self.error, rotf, self.stride).reshape(self.inputs.shape)
 
         def shuffle(self):
-            self.filters = np.random.randn(*self.filters.shape) / np.sqrt(np.prod(self.inshape))
+            self.filters = white_like(self.filters)
 
         @property
         def outshape(self):
-            return self.outdim
+            return self.nfilters, self.fx, self.fy
+
+        @property
+        def __str__(self):
+            pass
+
+        def get_weights(self, unfold=True):
+            pass
+
+        def set_weights(self, w, fold=True):
+            pass
 
     class AboLayer(_Layer):
         def __init__(self, brain, position, activation):
