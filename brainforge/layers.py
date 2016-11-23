@@ -376,27 +376,16 @@ class LSTM(_Recurrent):
         for t in range(self.time):
             Z = np.concatenate((self.inputs[t], output), axis=1)
 
-            # calculate gates
             preact = Z.dot(self.weights) + self.biases
             preact[:, :self.G] = sigmoid(preact[:, :self.G])
             preact[:, self.G:] = self.activation(preact[:, self.G:])
 
             f, i, o, cand = np.split(preact, 4, axis=-1)
 
-            # update state (cell memory)
             state = state * f + i * cand
-            # OK APPETANTLY THE BELOW 2 LINES DO NOT WORK
-            # [ie. they fail on the gradient check]
-            # EVEN IF I PARENTHESIZE THE (i * cand) PART
-            # WHYYY?
-            # state *= f
-            # state += i * cand
-
-            # calculate output
             state_a = self.activation(state)
             output = state_a * o
 
-            # store these for backprop
             self.Zs.append(Z)
             self.gates.append(preact)
             self.cache.append([output, state_a, state, preact])
@@ -431,11 +420,7 @@ class LSTM(_Recurrent):
             # Backprop into state
             dstate += error[t] * o * actprime(state_a)
 
-            if t == -self.time:
-                state_yesterday = 0.
-            else:
-                state_yesterday = self.cache[t-1][2]
-
+            state_yesterday = 0. if t == -self.time else self.cache[t-1][2]
             # Calculate the gate derivatives
             dfgate = state_yesterday * dstate
             digate = cand * dstate
