@@ -13,7 +13,7 @@ def pull_petofi_data():
                     cross_val=0.01)
 
 
-def build_reference_network(data: Sequence):
+def build_keras_net(data: Sequence):
     from keras.models import Sequential
     from keras.layers import SimpleRNN, Dense
 
@@ -24,25 +24,26 @@ def build_reference_network(data: Sequence):
     ]).compile(optimizer="sgd", loss="xent")
 
 
-def build_network(data: Sequence):
+def _build(data, what):
     inshape, outshape = data.neurons_required
-    rnn = Network(input_shape=inshape, name="TestRNN")
-    rnn.add(RLayer(30, activation="tanh", return_seq=True))
-    rnn.add(RLayer(30, activation="tanh"))
-    rnn.add(DenseLayer(outshape, activation="sigmoid"))
-    rnn.finalize("mse")
+    net = Network(input_shape=inshape, name="TestRNN")
+    if what.lower() == "lstm":
+        net.add(LSTM(30, activation="tanh", return_seq=True))
+        net.add(LSTM(30, activation="tanh"))
+    else:
+        net.add(RLayer(30, activation="tanh", return_seq=True))
+        net.add(RLayer(30, activation="tanh"))
+    net.add(DenseLayer(outshape, activation="sigmoid"))
+    net.finalize("mse")
+    return net
 
-    return rnn
+
+def build_rnn(data: Sequence):
+    return _build(data, "rnn")
 
 
 def build_LSTM(data: Sequence):
-    inshape, outshape = data.neurons_required
-    rnn = Network(input_shape=inshape, name="TestLSTM")
-    rnn.add(LSTM(10, activation="tanh", return_seq=False))
-    rnn.add(DenseLayer(outshape, activation="sigmoid"))
-    rnn.finalize("mse")
-
-    return rnn
+    return _build(data, "lstm")
 
 
 def xperiment():
@@ -53,7 +54,7 @@ def xperiment():
     print(speak_to_me(net, petofi))
 
     net.fit(*petofi.table("learning", m=40, shuff=True), epochs=1, verbose=0, shuffle=False)
-    if not net.gradient_check(*petofi.table("testing", m=5)):
+    if not net.gradient_check(*petofi.table("testing", m=10)):
         return
 
     X, Y = petofi.table("learning")

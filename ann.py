@@ -62,6 +62,7 @@ class Network:
     def add(self, layer: _Layer, input_dim=()):
         if len(self.layers) == 0:
             self._add_input_layer(input_dim)
+            self.architecture.append(str(self.layers[-1]))
 
         layer.connect(self, self.layers[-1].outshape)
         self.layers.append(layer)
@@ -232,12 +233,12 @@ class Network:
                     continue
                 layer.set_weights(w)
 
-    def gradient_check(self, X, y, verbose=1):
+    def gradient_check(self, X, y, verbose=1, epsilon=1e-5):
         from .util import gradient_check
         if self.age == 0:
             warnings.warn("Performing gradient check on an untrained Neural Network!",
                           RuntimeWarning)
-        return gradient_check(self, X, y, verbose=verbose)
+        return gradient_check(self, X, y, verbose=verbose, epsilon=epsilon)
 
     @property
     def output(self):

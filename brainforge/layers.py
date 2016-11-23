@@ -124,6 +124,9 @@ class _Recurrent(_FFLayer):
     def __init__(self, neurons, activation, return_seq=False):
         _FFLayer.__init__(self, neurons, activation)
         self.Z = 0
+        self.Zs = []
+        self.cache = []
+        self.gates = []
 
         self.time = 0
         self.return_seq = return_seq
@@ -134,7 +137,6 @@ class _Recurrent(_FFLayer):
     def feedforward(self, stimuli: np.ndarray):
         self.inputs = stimuli.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
-        self.cache.reset(batch_size=self.brain.m, time=self.time)
         return np.zeros((self.brain.m, self.neurons))
 
     @abc.abstractmethod
@@ -146,89 +148,12 @@ class _Recurrent(_FFLayer):
             error_tensor[-1] = error
             return error_tensor
 
-    @abc.abstractmethod
-    def connect(self, to, inshape):
-        _FFLayer.connect(self, to, inshape)
-        self.cache = self.Cache(inshape[-1], self.neurons)
-
     @property
     def outshape(self):
         if self.return_seq:
             return self.time, self.neurons
         else:
             return self.neurons,
-
-    class Cache:
-
-        def __init__(self, inp, neu):
-            self.keys = ("outputs", "gates", "candidates", "states", "tanh states", "Z")
-            self.gateindices = ("gate forget", "gate input", "gate output")
-            self.k = len(self.keys)
-            self.Z = inp + neu
-            self.n = neu
-            self.m = None
-            self.t = None
-            self.innards = None
-            self.Zs = None
-            self.gates = None
-
-        def assertkey(self, item):
-            if item not in self.keys and item not in self.gateindices:
-                raise IndexError("There is no cache named {}".format(item))
-
-        def reset(self, batch_size=None, time=None):
-            if self.t is None and time is None:
-                raise RuntimeError("No previous time information is available! Supply time parameter!")
-            if time is None:
-                time = self.t
-            if self.m is None and batch_size is None:
-                raise RuntimeError("No previous time information is available! Supply time parameter!")
-            if batch_size is None:
-                batch_size = self.m
-
-            self.t = time
-            self.m = batch_size
-            self.innards = np.zeros((self.k, self.t, self.m, self.n))
-            self.Zs = np.zeros((self.t, self.m, self.Z))
-            self.gates = np.zeros((self.t, self.m, self.n*3))
-
-        def set_z(self, value):
-            assert value.shape == self.Zs.shape
-            self.Zs = value
-
-        def get_gate(self, key):
-            gfrom = self.gateindices.index(key) * self.n
-            return self.gates[:, :, gfrom:gfrom+self.n]
-
-        def set_gate(self, key, value):
-            gfrom = self.gateindices.index(key) * self.n
-            self.gates[:, :, gfrom:gfrom+self.n] = value
-
-        def __getitem__(self, item):
-            self.assertkey(item)
-            if item == "Z":
-                return self.Zs
-            if "gate " == item[:5]:
-                return self.get_gate(item)
-            return self.innards[self.keys.index(item)]
-
-        def __setitem__(self, key, value):
-            self.assertkey(key)
-            if value == "Z":
-                self.set_z(value)
-                return
-            if key[:5] == "gate ":
-                self.set_gate(key, value)
-                return
-            if key == "gates":
-                if value.shape != (self.m, self.n*3):
-                    raise ValueError("'gates' shape difference: self: {} != {} :value"
-                                     .format((self.m, self.n*3), value.shape))
-                self.gates = value
-            if value.shape != (self.m, self.n):
-                raise ValueError("Shapes differ: self: {} != {} :value"
-                                 .format((self.m, self.n), value.shape))
-            self.innards[self.keys.index(key)] = value
 
 
 class InputLayer(_Layer):
@@ -368,21 +293,22 @@ class RLayer(_Recurrent):
 
     def feedforward(self, questions: np.ndarray):
 
-        def timestep(Z):
-            return self.activation(Z.dot(self.weights) + self.biases)
-
         output = _Recurrent.feedforward(self, questions)
-        for t in range(self.time):
-            concatenated_inputs = np.concatenate((self.inputs[t], output), axis=1)
-            output = timestep(concatenated_inputs)
 
-            self.cache["Z"][t] = concatenated_inputs
-            self.cache["outputs"][t] = output
+        self.cache = []
+        self.Zs = []
+
+        for t in range(self.time):
+            Z = np.concatenate((self.inputs[t], output), axis=-1)
+            output = self.activation(Z.dot(self.weights) + self.biases)
+
+            self.Zs.append(Z)
+            self.cache.append(output)
 
         if self.return_seq:
-            self.output = self.cache["outputs"].transpose(1, 0, 2)
+            self.output = np.stack(self.cache, axis=1)
         else:
-            self.output = self.cache["outputs"][-1]
+            self.output = self.cache[-1]
 
         return self.output
 
@@ -402,20 +328,23 @@ class RLayer(_Recurrent):
         # the gradient flowing backwards in time
         delta = np.zeros_like(error[-1])
         # the gradient wrt the whole input tensor: dC/dX = dC/dY_{l-1}
-        delta_X = np.zeros_like(self.inputs)
+        deltaX = np.zeros_like(self.inputs)
 
         for time in range(self.time-1, -1, -1):
-            delta += error[time]
-            delta *= self.activation.derivative(self.cache["outputs"][time])
+            output = self.cache[time]
+            Z = self.Zs[time]
 
-            self.nabla_w += self.cache["Z"][time].T.dot(delta)
+            delta += error[time]
+            delta *= self.activation.derivative(output)
+
+            self.nabla_w += Z.T.dot(delta)
             self.nabla_b += delta.sum(axis=0)
 
-            delta_Z = delta.dot(self.weights.T)
-            delta_X[time] = delta_Z[:, :-self.neurons]
-            delta = delta_Z[:, -self.neurons:]
+            deltaZ = delta.dot(self.weights.T)
+            deltaX[time] = deltaZ[:, :-self.neurons]
+            delta = deltaZ[:, -self.neurons:]
 
-        return delta_X.transpose(1, 0, 2)
+        return deltaX.transpose(1, 0, 2)
 
     def __str__(self):
         return "{}-RLayer-{}".format(self.neurons, str(self.activation))
@@ -426,41 +355,57 @@ class LSTM(_Recurrent):
     def __init__(self, neurons, activation, return_seq=False):
         _Recurrent.__init__(self, neurons, activation, return_seq)
         self.G = neurons * 3
+        self.Zs = []
+        self.gates = []
 
     def connect(self, to, inshape):
+        _Recurrent.connect(self, to, inshape)
         self.Z = inshape[-1] + self.neurons
         self.weights = white(self.Z, self.neurons * 4)
         self.biases = np.zeros((self.neurons * 4,))
-        _Recurrent.connect(self, to, inshape)
 
     def feedforward(self, X: np.ndarray):
 
         output = _Recurrent.feedforward(self, X)
         state = np.zeros_like(output)
 
-        cch = self.cache
+        self.Zs = []
+        self.gates = []
+        self.cache = []
 
         for t in range(self.time):
-            cch["Z"][t] = np.concatenate((self.inputs[t], output), axis=1)
+            Z = np.concatenate((self.inputs[t], output), axis=1)
 
-            preact = cch["Z"][t].dot(self.weights) + self.biases
-            cch["gates"] = sigmoid(preact[:, :self.G])
-            cand = self.activation(preact[:, self.G:])
-            state *= cch["gate forget"]
-            state += cch["gate inputs"] * cand
+            # calculate gates
+            preact = Z.dot(self.weights) + self.biases
+            preact[:, :self.G] = sigmoid(preact[:, :self.G])
+            preact[:, self.G:] = self.activation(preact[:, self.G:])
+
+            f, i, o, cand = np.split(preact, 4, axis=-1)
+
+            # update state (cell memory)
+            state = state * f + i * cand
+            # OK APPETANTLY THE BELOW 2 LINES DO NOT WORK
+            # [ie. they fail on the gradient check]
+            # EVEN IF I PARENTHESIZE THE (i * cand) PART
+            # WHYYY?
+            # state *= f
+            # state += i * cand
+
+            # calculate output
             state_a = self.activation(state)
-            output = state_a * cch["gate output"]
+            output = state_a * o
 
-            cch["outputs"][t] = output
-            cch["states"][t] = state
-            cch["tanh states"][t] = state_a
+            # store these for backprop
+            self.Zs.append(Z)
+            self.gates.append(preact)
+            self.cache.append([output, state_a, state, preact])
 
         if self.return_seq:
-            self.output = self.cache["outputs"].transpose(1, 0, 2)
-            return self.output
+            self.output = np.stack([cache[0] for cache in self.cache], axis=1)
         else:
-            self.output = self.cache["outputs"][-1]
-            return self.output
+            self.output = self.cache[-1][0]
+        return self.output
 
     def backpropagate(self, error):
 
@@ -469,39 +414,46 @@ class LSTM(_Recurrent):
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
 
-        cch = self.cache
         actprime = self.activation.derivative
+        sigprime = sigmoid.derivative
 
         dstate = np.zeros_like(error[-1])
         deltaX = np.zeros_like(self.inputs)
-        deltaZ = np.zeros_like(cch["Z"][0])
+        deltaZ = np.zeros_like(self.Zs[0])
 
         for t in range(-1, -(self.time+1), -1):
-            doutput = error[t] + deltaZ[:, -self.neurons:]
-            dstate += (doutput * cch["gate output"][t]) * actprime(cch["tanh states"][t])
+            output, state_a, state, preact = self.cache[t]
+            f, i, o, cand = np.split(self.gates[t], 4, axis=-1)
+
+            # Add recurrent delta to output delta
+            error[t] += deltaZ[:, -self.neurons:]
+
+            # Backprop into state
+            dstate += error[t] * o * actprime(state_a)
 
             if t == -self.time:
-                dfgate = np.zeros_like(dstate)
+                state_yesterday = 0.
             else:
-                dfgate = cch["states"][t-1] * dstate
+                state_yesterday = self.cache[t-1][2]
 
-            digate = cch["candidates"][t] * dstate
-            dogate = cch["tanh states"][t] * error[t]
-            dcand = actprime(cch["candidates"][t]) * cch["gate input"][t] * dstate
-
+            # Calculate the gate derivatives
+            dfgate = state_yesterday * dstate
+            digate = cand * dstate
+            dogate = state_a * error[t]
+            dcand = i * dstate * actprime(cand)  # Backprop nonlinearity
             dgates = np.concatenate((dfgate, digate, dogate, dcand), axis=-1)
-            dgates[:, :self.G] *= sigmoid.derivative(cch["gates"][t])
+            dgates[:, :self.G] *= sigprime(self.gates[t][:, :self.G])  # Backprop nonlinearity
 
-            dstate += dstate * cch["gate forget"][t]
+            dstate *= f
 
             self.nabla_b += dgates.sum(axis=0)
-            self.nabla_w += cch["Z"][t].T.dot(dgates)
+            self.nabla_w += self.Zs[t].T.dot(dgates)
 
             deltaZ = dgates.dot(self.weights.T)
 
             deltaX[t] = deltaZ[:, :-self.neurons]
 
-        return deltaX
+        return deltaX.transpose(1, 0, 2)
 
     def __str__(self):
         return "{}-LSTM-{}".format(self.neurons, str(self.activation)[:4])

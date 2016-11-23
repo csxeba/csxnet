@@ -12,6 +12,10 @@ This is a batched LSTM forward and backward pass
 import numpy as np
 
 
+actprime = lambda z: 1. - z**2
+sigprime = lambda z: z * (1. - z)
+
+
 class LSTM:
     @staticmethod
     def init(input_size, hidden_size, fancy_forget_bias_init=3):
@@ -30,51 +34,43 @@ class LSTM:
         return WLSTM
 
     @staticmethod
-    def forward(X, WLSTM, c0=None, h0=None):
+    def forward(X, WLSTM):
         """
         X should be of shape (n,b,input_size), where n = length of sequence, b = batch size
         """
         n, b, input_size = X.shape
         d = WLSTM.shape[1] / 4  # hidden size
-        if c0 is None:
-            c0 = np.zeros((b, d))
-        if h0 is None:
-            h0 = np.zeros((b, d))
-
         # Perform the LSTM forward pass with X as the input
         xphpb = WLSTM.shape[0]  # x plus h plus bias, lol
         Hin = np.zeros((n, b, xphpb))  # input [1, xt, ht-1] to each tick of the LSTM
         Hout = np.zeros((n, b, d))  # hidden representation of the LSTM (gated cell content)
         IFOG = np.zeros((n, b, d * 4))  # input, forget, output, gate (IFOG)
-        IFOGf = np.zeros((n, b, d * 4))  # after nonlinearity
         C = np.zeros((n, b, d))  # cell content
         Ct = np.zeros((n, b, d))  # tanh of cell content
         for t in range(n):
             # concat [x,h] as input to the LSTM
-            prevh = Hout[t - 1] if t > 0 else h0
+            prevh = Hout[t - 1] if t > 0 else 0.
             Hin[t, :, 0] = 1  # bias
             Hin[t, :, 1:input_size + 1] = X[t]
             Hin[t, :, input_size + 1:] = prevh
             # compute all gate activations. dots: (most work is this line)
             IFOG[t] = Hin[t].dot(WLSTM)
             # non-linearities
-            IFOGf[t, :, :3 * d] = 1.0 / (1.0 + np.exp(-IFOG[t, :, :3 * d]))  # sigmoids; these are the gates
-            IFOGf[t, :, 3 * d:] = np.tanh(IFOG[t, :, 3 * d:])  # tanh
+            IFOG[t, :, :3 * d] = 1.0 / (1.0 + np.exp(-IFOG[t, :, :3 * d]))  # sigmoids; these are the gates
+            IFOG[t, :, 3 * d:] = np.tanh(IFOG[t, :, 3 * d:])  # tanh
+            I, F, O, cand = np.split(IFOG, 4, axis=-1)
             # compute the cell activation
-            prevc = C[t - 1] if t > 0 else c0
-            C[t] = IFOGf[t, :, :d] * IFOGf[t, :, 3 * d:] + IFOGf[t, :, d:2 * d] * prevc
+            prevc = C[t - 1] if t > 0 else 0.
+            C[t] = I * cand + F * prevc
             Ct[t] = np.tanh(C[t])
-            Hout[t] = IFOGf[t, :, 2 * d:3 * d] * Ct[t]
+            Hout[t] = O * Ct[t]
 
         cache = {'WLSTM': WLSTM,
                  'Hout': Hout,
-                 'IFOGf': IFOGf,
                  'IFOG': IFOG,
                  'C': C,
                  'Ct': Ct,
-                 'Hin': Hin,
-                 'c0': c0,
-                 'h0': h0}
+                 'Hin': Hin}
 
         # return C[t], as well so we can continue LSTM with prev state init if needed
         return Hout, C[-1], Hout[-1], cache
@@ -85,16 +81,14 @@ class LSTM:
         WLSTM = cache['WLSTM']
         Hout = cache['Hout']
         IFOGf = cache['IFOGf']
-        IFOG = cache['IFOG']
         C = cache['C']
         Ct = cache['Ct']
         Hin = cache['Hin']
-        c0 = cache['c0']
         n, b, d = Hout.shape
         input_size = WLSTM.shape[0] - d - 1  # -1 due to bias
 
         # backprop the LSTM
-        dIFOG = np.zeros(IFOG.shape)
+        dIFOG = np.zeros(IFOGf.shape)
         dIFOGf = np.zeros(IFOGf.shape)
         dWLSTM = np.zeros(WLSTM.shape)
         dHin = np.zeros(Hin.shape)
@@ -118,7 +112,7 @@ class LSTM:
                 dIFOGf[t, :, d:2 * d] = C[t - 1] * dC[t]
                 dC[t - 1] += IFOGf[t, :, d:2 * d] * dC[t]
             else:
-                dIFOGf[t, :, d:2 * d] = c0 * dC[t]
+                dIFOGf[t, :, d:2 * d] = 0. * dC[t]
                 dc0 = IFOGf[t, :, d:2 * d] * dC[t]
             dIFOGf[t, :, :d] = IFOGf[t, :, 3 * d:] * dC[t]
             dIFOGf[t, :, 3 * d:] = IFOGf[t, :, :d] * dC[t]
@@ -142,68 +136,59 @@ class LSTM:
         return dX, dWLSTM, dc0, dh0
 
     @staticmethod
-    def backwardrw(error_above, cache, dC_next=None, dOut_next=None):
+    def backwardrw(error_above, cache):
 
         W = cache['WLSTM']
         outputs = cache['Hout']
-        gates = cache['IFOGf']
+        gates = cache['IFOG']
         I, F, O, cand = np.split(gates, 4, axis=-1)
-        gates_net = cache['IFOG']
         C = cache['C']
         tC = cache['Ct']
         X = cache['Hin']
-        c0 = cache['c0']
         time, m, neurons = outputs.shape
         Z = W.shape[0] - neurons - 1  # -1 due to bias
 
         # backprop the LSTM
-        dgates = np.zeros(gates_net.shape)
-        dGates_net = np.zeros(gates.shape)
+        dgates = np.zeros(gates.shape)
         dW = np.zeros(W.shape)
-        dHin = np.zeros(X.shape)
+        dZ = np.zeros(X.shape)
         dC = np.zeros(C.shape)
         dX = np.zeros((time, m, Z))
-        dh0 = np.zeros((m, neurons))
-        dc0 = np.zeros((m, neurons))
         error = error_above.copy()  # make a copy so we don't have any funny side effects
-        if dC_next is not None:
-            dC[-1] += dC_next.copy()  # carry over nabla_w from later
-        if dOut_next is not None:
-            error[-1] += dOut_next.copy()
+
         for t in reversed(range(time)):
 
-            dO_net = tC[t] * error[t]
             # backprop tanh non-linearity first then continue backprop
-            dC[t] += (1 - tC[t] ** 2) * (O[t] * error[t])
+            dC[t] += actprime(tC[t]) * (O[t] * error[t])
 
             if t > 0:
-                dF_net = C[t - 1] * dC[t]
-                dC[t - 1] += F[t] * dC[t]
+                state_y = C[t - 1]
+                dC[t - 1] += dC[t] * F[t]
             else:
-                dF_net = c0 * dC[t]
-                dc0 = F[t] * dC[t]
-            dI_net = cand[t] * dC[t]
-            dCand_net = I[t] * dC[t]
+                state_y = 0.
+            
+            dF = state_y * dC[t] 
+            dI = cand[t] * dC[t]
+            dO = tC[t] * error[t]
+            dcand = I[t] * dC[t]
 
-            dGates_net[t] = np.concatenate((dI_net, dF_net, dO_net, dCand_net), axis=-1)
+            dgates[t] = np.concatenate((dI, dF, dO, dcand), axis=-1)
 
             # backprop activation functions
-            dgates[t, :, 3 * neurons:] = (1 - cand[t] ** 2) * dGates_net[t, :, 3 * neurons:]
+            dgates[t, :, 3 * neurons:] *= actprime(cand[t])
             y = gates[t, :, :3 * neurons]
-            dgates[t, :, :3 * neurons] = (y * (1.0 - y)) * dGates_net[t, :, :3 * neurons]
+            dgates[t, :, :3 * neurons] *= sigprime(y)
 
             # backprop matrix multiply
             dW += np.dot(X[t].T, dgates[t])
-            dHin[t] = dgates[t].dot(W.T)
+            dZ[t] = dgates[t].dot(W.T)
 
             # backprop the identity transforms into Hin
-            dX[t] = dHin[t, :, 1:Z + 1]
+            dX[t] = dZ[t, :, 1:Z + 1]
             if t > 0:
-                error[t - 1, :] += dHin[t, :, Z + 1:]
-            else:
-                dh0 += dHin[t, :, Z + 1:]
+                error[t - 1, :] += dZ[t, :, Z + 1:]
 
-        return dX, dW, dc0, dh0
+        return dX, dW
 
 # -------------------
 # TEST CASES
@@ -291,7 +276,7 @@ def checkBatchGradient():
     wrand = np.random.randn(*H.shape)
     # loss = np.sum(H * wrand)  # weighted sum is a nice hash to use I think
     dH = wrand
-    dX, dWLSTM, dc0, dh0 = LSTM.backward(dH, cache)
+    dX, dWLSTM, dc0, dh0 = LSTM.backwardrw(dH, cache)
 
     def fwd():
         h, _, _, _ = LSTM.forward(X, WLSTM, c0, h0)

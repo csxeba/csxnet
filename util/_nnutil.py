@@ -94,7 +94,7 @@ def analytical_gradients(network, X, y):
     return anagrads
 
 
-def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
+def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
 
     def fold_difference_matrices(dvec):
         diffs = []
@@ -109,9 +109,10 @@ def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
 
     def analyze_difference_matrices(dvec):
         from matplotlib import pyplot as plt
-        diff = fold_difference_matrices(dvec)
-        for d in diff:
-            plt.matshow(np.atleast_2d(d))
+        dmats = fold_difference_matrices(dvec)
+        for i, d in enumerate(dmats):
+            print("Sum of difference matrix no {0}: {1:.4e}".format(i, d.sum()))
+            plt.matshow(np.atleast_2d(np.abs(d)))
             plt.show()
 
     def get_results(er):
