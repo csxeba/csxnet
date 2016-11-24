@@ -3,14 +3,15 @@ import warnings
 
 import numpy as np
 
-from ..util import white, white_like, sigmoid
+from ..util import white, white_like, rtm
+from ..ops import sigmoid
 
 
 class _Layer(abc.ABC):
     """Abstract base class for all layer type classes"""
     def __init__(self, activation):
 
-        from ..util import act_fns as activations
+        from ..ops import act_fns as activations
 
         self.brain = None
         self.inputs = None
@@ -31,27 +32,26 @@ class _Layer(abc.ABC):
         self.brain = to
 
     @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplemented
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplementedError
 
     @abc.abstractmethod
-    def backpropagate(self, error) -> np.ndarray: raise NotImplemented
+    def backpropagate(self, error) -> np.ndarray: raise NotImplementedError
 
     @abc.abstractmethod
-    def shuffle(self) -> None: raise NotImplemented
+    def shuffle(self) -> None: raise NotImplementedError
 
     @abc.abstractmethod
-    def get_weights(self, unfold=True): raise NotImplemented
+    def get_weights(self, unfold=True): raise NotImplementedError
 
     @abc.abstractmethod
-    def set_weights(self, w, fold=True): raise NotImplemented
-
-    @property
-    @abc.abstractmethod
-    def outshape(self): raise NotImplemented
+    def set_weights(self, w, fold=True): raise NotImplementedError
 
     @property
     @abc.abstractmethod
-    def __str__(self): raise NotImplemented
+    def outshape(self): raise NotImplementedError
+
+    @abc.abstractmethod
+    def __str__(self): raise NotImplementedError
 
 
 class _VecLayer(_Layer):
@@ -149,6 +149,41 @@ class _Recurrent(_FFLayer):
             return self.neurons,
 
 
+class _Op(_Layer):
+
+    def __init__(self, op):
+        _Layer.__init__(self, activation="linear")
+        self.op = op
+        self.trainable = False
+
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
+        self.output = self.op(stimuli)
+        return self.output
+
+    def connect(self, to, inshape):
+        _Layer.connect(self, to, inshape)
+        self.op.inshape = inshape
+
+    def backpropagate(self, error) -> np.ndarray:
+        return self.op.backwards(error)
+
+    def __str__(self):
+        return str(self.op)
+
+    def get_weights(self, unfold=True):
+        return NotImplemented
+
+    def set_weights(self, w, fold=True):
+        return NotImplemented
+
+    def shuffle(self) -> None:
+        return NotImplemented
+
+    @property
+    def outshape(self):
+        return self.op.outshape
+
+
 class InputLayer(_Layer):
 
     def __init__(self, shape):
@@ -206,7 +241,10 @@ class DenseLayer(_FFLayer):
         _FFLayer.__init__(self,  neurons=neurons, activation=activation)
 
     def connect(self, to, inshape):
-        assert len(inshape) == 1
+        if len(inshape) != 1:
+            err = "Dense only accepts input shapes with 1 dimension!\n"
+            err += "Maybe you should consider placing <Flatten> before <Dense>?"
+            raise RuntimeError(err)
         self.weights = white(inshape[0], self.neurons)
         self.biases = np.zeros((self.neurons,))
         _FFLayer.connect(self, to, inshape)
@@ -240,6 +278,16 @@ class DenseLayer(_FFLayer):
         return "{}-Dense-{}".format(self.neurons, str(self.activation)[:5])
 
 
+class Flatten(_Op):
+
+    def __init__(self):
+        from ..ops import Flatten as op
+        _Op.__init__(self, op=op())
+
+    def connect(self, to, inshape):
+        _Op.connect(self, to, inshape)
+
+
 class DropOut(_Layer):
 
     def __init__(self, dropchance):
@@ -261,11 +309,11 @@ class DropOut(_Layer):
     def backpropagate(self, error):
         return error * self.mask
 
-    def get_weights(self, unfold=True): raise NotImplemented
+    def get_weights(self, unfold=True): raise NotImplementedError
 
-    def set_weights(self, w, fold=True): raise NotImplemented
+    def set_weights(self, w, fold=True): raise NotImplementedError
 
-    def shuffle(self) -> None: raise NotImplemented
+    def shuffle(self) -> None: raise NotImplementedError
 
     @property
     def outshape(self):
@@ -553,7 +601,6 @@ class Experimental:
 
             _VecLayer.__init__(self, activation=activation)
 
-            self.outdim = nfilters, self.outshape[0], self.outshape[1]
             self.nfilters = nfilters
             self.fx = filterx
             self.fy = filtery
@@ -569,11 +616,10 @@ class Experimental:
 
         def connect(self, to, inshape):
             _VecLayer.connect(self, to, inshape)
-            ix, iy, depth = inshape
+            depth, ix, iy,  = inshape
             self.depth = depth
-
-            self.filters = white(self.nfilters, self.fx * self.fy * depth)
-            self.biases = np.zeros((self.filters,))
+            self.filters = white(self.nfilters, self.fx, self.fy, depth)
+            self.biases = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
             self.inputs = np.copy(X)

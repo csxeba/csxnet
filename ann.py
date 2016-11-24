@@ -72,7 +72,7 @@ class Network:
         for layer in self.layers:
             if layer.trainable:
                 if isinstance(optimizer, str):
-                    optimizer = opt[optimizer]()
+                    optimizer = opt[optimizer](layer)
                 layer.optimizer = optimizer
         self.cost = costs[cost] if isinstance(cost, str) else cost
         self._finalized = True
