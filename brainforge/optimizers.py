@@ -88,3 +88,6 @@ class Adam:
 
         self.layer.weights -= eta * self.mW / (np.sqrt(self.vW) + self.epsilon)
         self.layer.biases -= eta * self.mb / (np.sqrt(self.vb) + self.epsilon)
+
+
+optimizer = {key.lower(): cls for key, cls in locals() if key != "np"}

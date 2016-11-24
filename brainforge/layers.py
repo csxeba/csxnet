@@ -3,7 +3,7 @@ import warnings
 
 import numpy as np
 
-from ..util import white, white_like, sigmoid, calcsteps
+from ..util import white, white_like, sigmoid
 
 
 class _Layer(abc.ABC):
@@ -96,8 +96,7 @@ class _FFLayer(_Layer):
             self.weights = w[:sw.size].reshape(sw.shape)
             self.biases = w[sw.size:].reshape(self.biases.shape)
         else:
-            self.weights = w[0]
-            self.biases = w[1]
+            self.weights, self.biases = w
 
     @property
     def gradients(self):
@@ -548,6 +547,7 @@ class Experimental:
             return self.outdim
 
     class ConvLayer(_VecLayer):
+
         def __init__(self, nfilters, filterx, filtery, stride=1, activation="relu"):
             from ..util import convolve
 
@@ -591,20 +591,27 @@ class Experimental:
 
         def shuffle(self):
             self.filters = white_like(self.filters)
+            self.biases = np.zeros_like(self.biases)
+
+        def get_weights(self, unfold=True):
+            if unfold:
+                return np.concatenate((self.filters.ravel(), self.biases.ravel()))
+            else:
+                return [self.filters, self.biases]
+
+        def set_weights(self, w, fold=True):
+            if fold:
+                self.filters = w[:self.filters.size].reshape(self.filters.shape)
+                self.biases = w[self.filters.size:].reshape(self.biases.shape)
+            else:
+                self.filters, self.biases = w
 
         @property
         def outshape(self):
             return self.nfilters, self.fx, self.fy
 
-        @property
         def __str__(self):
-            pass
-
-        def get_weights(self, unfold=True):
-            pass
-
-        def set_weights(self, w, fold=True):
-            pass
+            return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])
 
     class AboLayer(_Layer):
         def __init__(self, brain, position, activation):

@@ -21,10 +21,6 @@ import warnings
 
 import numpy as np
 
-# noinspection PyProtectedMember
-from .brainforge.layers import _Layer
-from .brainforge.optimizers import *
-
 
 class Network:
 
@@ -59,7 +55,7 @@ class Network:
         self.layers[-1].connect(to=self, inshape=inshape)
         self.layers[-1].connected = True
 
-    def add(self, layer: _Layer, input_dim=()):
+    def add(self, layer, input_dim=()):
         if len(self.layers) == 0:
             self._add_input_layer(input_dim)
             self.architecture.append(str(self.layers[-1]))
@@ -69,12 +65,15 @@ class Network:
         self.architecture.append(str(layer))
         layer.connected = True
 
-    def finalize(self, cost, optimizer="sgd", eta=0.1):
+    def finalize(self, cost, optimizer="sgd"):
         from .util import cost_fns as costs
+        from .brainforge.optimizers import optimizer as opt
 
         for layer in self.layers:
             if layer.trainable:
-                layer.optimizer = Adam(layer)
+                if isinstance(optimizer, str):
+                    optimizer = opt[optimizer]()
+                layer.optimizer = optimizer
         self.cost = costs[cost] if isinstance(cost, str) else cost
         self._finalized = True
 

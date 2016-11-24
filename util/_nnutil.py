@@ -155,7 +155,7 @@ def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
     return passed
 
 
-def white(*dims):
+def white(*dims) -> np.ndarray:
     """Returns a white noise tensor"""
     return np.random.randn(*dims) / np.sqrt(dims[0] / 2.)
 
