@@ -613,12 +613,15 @@ class Experimental:
             self.nabla_w = None
             self.nabla_b = None
             self.op = convolve
+            self._outshape = None
 
         def connect(self, to, inshape):
+            from ..util import outshape
             _VecLayer.connect(self, to, inshape)
-            depth, ix, iy,  = inshape
+            depth, ix, iy = inshape
+            self._outshape = outshape((ix, iy), (self.fx, self.fy), self.stride)
             self.depth = depth
-            self.filters = white(self.nfilters, self.fx, self.fy, depth)
+            self.filters = white(self.fx, self.fy, self.depth, self.nfilters)
             self.biases = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
@@ -628,10 +631,25 @@ class Experimental:
             return self.output
 
         def backpropagate(self, error):
+            """
+
+            :param error: 4D tensor: (m, filter_number, x, y)
+            :return:
+            """
+
+            # Some things to implement:
+            # Backwards pass is a convolution between the error tensor and the
+            # flipped kernel.
+            # Gradients are given by the convolution between the transposed
+            # input tensor and the error tensor.
+            # If the forward pass was a "valid" convolution, the the backwards
+            # pass must be a "full" convolution.
+            # The padding constant is still a question, but I guess it should be 0
+
             self.error = error * self.activation.derivative(self.output)
-            roti = np.rot90(self.inputs, k=2)
+            # roti = np.rot90(self.inputs, k=2)
             rotf = np.rot90(self.filters, k=2)
-            self.nabla_w = self.op(roti, self.error, self.stride)
+            self.nabla_w = self.op(self.inputs, self.error.transpose(3, 2, 0, 1), self.stride)
             self.nabla_b = self.error.sum(axis=1)
             return self.op(self.error, rotf, self.stride).reshape(self.inputs.shape)
 
@@ -654,10 +672,11 @@ class Experimental:
 
         @property
         def outshape(self):
-            return self.nfilters, self.fx, self.fy
+            return self.nfilters, self._outshape[0], self._outshape[1]
 
         def __str__(self):
             return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])
+
 
     class AboLayer(_Layer):
         def __init__(self, brain, position, activation):

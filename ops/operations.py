@@ -49,7 +49,8 @@ class Flatten(_OpBase):
         return self.op(A)
 
     def backwards(self, A):
-        return A.reshape(self.inshape)
+        m = A.shape[0]
+        return A.reshape(m, *self.inshape)
 
     @property
     def outshape(self):

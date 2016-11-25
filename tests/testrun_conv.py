@@ -15,7 +15,7 @@ def build_cnn(data: CData):
     net = Network(input_shape=inshape, name="TestBrainforgeCNN")
     net.add(Experimental.ConvLayer(1, 4, 4))
     net.add(Flatten())
-    net.add(DenseLayer(30, activation="sigmoid"))
+    net.add(DenseLayer(10, activation="sigmoid"))
     net.finalize("xent")
     return net
 
