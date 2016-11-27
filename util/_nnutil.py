@@ -12,37 +12,60 @@ def l2term(eta, lmbd, N):
 
 
 def outshape(inshape: tuple, fshape: tuple, stride: int):
-    """Calculates the shape of an output matrix if a filter of shape
+    """
+    Calculates the shape of an output matrix if a filter of shape
     <fshape> gets slided along a matrix of shape <fanin> with a
     stride of <stride>.
-    Returns x, y sizes of the output matrix"""
-    output = [int((x - ins) / stride) + 1 if (x - ins) % stride == 0 else "NaN"
-              for x, ins in zip(inshape[1:3], fshape[1:3])]
+    Returns x, y sizes of the output matrix
+    """
+    output = [int((indim - fdim) / stride) + 1 if (indim - fdim) % stride == 0 else "NaN"
+              for indim, fdim in zip(inshape, fshape)]
     if "NaN" in output:
-        raise RuntimeError("Shapes not compatible!")
-    return tuple(output)
+        raise RuntimeError("Shapes not compatible!\nin: {}, filter: {}".format(inshape, fshape))
+    return output
 
 
 def calcsteps(inshape: tuple, fshape: tuple, stride: int):
-    """Calculates the coordinates required to slide
+    """
+    Calculates the coordinates required to slide
     a filter of shape <fshape> along a matrix of shape <inshape>
     with a stride of <stride>.
-    Returns a list of coordinates"""
+    Returns a list of coordinates
+    """
     xsteps, ysteps = outshape(inshape, fshape, stride)
+    fx, fy = fshape
 
-    startxes = np.arange(xsteps) * stride
-    startys = np.arange(ysteps) * stride
+    for sy in range(0, ysteps, stride):
+        for sx in range(0, xsteps, stride):
+            yield sx, sx + fx, sy, sy + fy
 
-    endxes = startxes + fshape[1]
-    endys = startys + fshape[2]
 
-    coords = []
+def convolve(X, F, stride=1):
+    """
+    Convolution with a depth domain (for e.g. RGB images)
 
-    for sy, ey in zip(startys, endys):
-        for sx, ex in zip(startxes, endxes):
-            coords.append((sx, ex, sy, ey))
+    :param X: input: 4D tensor: (batch, channels, x, y)
+    :param F: filter: 4D tensor: (x, y, channels, filter number)
+    :param stride: step size in convolution
+    :return: 4D tensor: (batch, channel, newX, newY)
+    """
 
-    return tuple(coords)
+    m, depth, Xshape = X.shape[0], X.shape[1], X.shape[2:]
+    Fx, Fy, Fdepth, nFilt = F.shape
+    Fshape = Fx, Fy
+    recfield_size = Fx*Fy*Fdepth
+    if Fdepth != depth:
+        err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
+        err += "input depth: {} != {} :filter depth".format(depth, Fdepth)
+        raise ValueError(err)
+
+    rfields = np.array([[pic[:, sx:ex, sy:ey].ravel() for pic in X]
+                        for sx, ex, sy, ey in calcsteps(Xshape, Fshape, stride=stride)])
+
+    oshape = outshape(Xshape, Fshape, stride)
+    output = np.matmul(rfields, F.reshape(recfield_size, nFilt))
+    output = output.transpose(2, 0, 1).reshape(m, nFilt, *oshape)
+    return output
 
 
 def numerical_gradients(network, X, y, epsilon=1e-5):
@@ -50,16 +73,18 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
     numgrads = np.zeros_like(ws)
     perturb = np.copy(numgrads)
 
-    nparams = len(numgrads)
+    nparams = ws.size
     print("Calculating numerical gradients...")
     for i in range(nparams):
         print("\r{0:>{1}} / {2:<}".format(i+1, len(str(nparams)), nparams), end=" ")
         perturb[i] += epsilon
 
         network.set_weights(ws + perturb, fold=True)
-        cost1 = network.cost(network.predict_raw(X), y)
+        pred1 = network.prediction(X)
+        cost1 = network.cost(pred1, y)
         network.set_weights(ws - perturb, fold=True)
-        cost2 = network.cost(network.predict_raw(X), y)
+        pred2 = network.prediction(X)
+        cost2 = network.cost(pred2, y)
 
         numgrads[i] = (cost1 - cost2)
         perturb[i] = 0.0
@@ -73,41 +98,41 @@ def numerical_gradients(network, X, y, epsilon=1e-5):
 
 
 def analytical_gradients(network, X, y):
-
-    nparams = sum(np.prod(layer.weights.shape) for layer
-                  in network.layers if layer.trainable)
-    anagrads = np.zeros((nparams,))
-    network._forward_pass(X)
-    network._backward_pass(y)
+    anagrads = np.zeros((network.nparams,))
+    network.prediction(X)
+    network.backpropagation(y)
 
     start = 0
     for layer in network.layers:
         if not layer.trainable:
             continue
-        end = start + np.prod(layer.weights.shape)
-        anagrads[start:end] = layer.gradients.ravel()
-        start += end
+        end = start + layer.nparams
+        anagrads[start:end] = layer.gradients
+        start = end
 
     return anagrads
 
 
 def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
 
-    def fold_difference_matrices(d_vec):
+    def fold_difference_matrices(dvec):
         diffs = []
         start = 0
         for layer in network.layers[1:]:
-            end = start + np.prod(layer.weights.shape)
-            diffs.append(d_vec[start:end].reshape(layer.weights.shape))
-            start += end
+            weight = start + layer.weights.size
+            bias = weight + layer.biases.size
+            diffs.append(dvec[start:weight].reshape(layer.weights.shape))
+            diffs.append(dvec[weight:bias].reshape(layer.biases.shape))
+            start = bias
         return diffs
 
-    def display_differences(d):
-        from PIL import Image
-        d = fold_difference_matrices(d)
-        for n, matrix in enumerate(d, start=1):
-            img = Image.fromarray(matrix, mode="F")
-            img.show()
+    def analyze_difference_matrices(dvec):
+        from matplotlib import pyplot as plt
+        dmats = fold_difference_matrices(dvec)
+        for i, d in enumerate(dmats):
+            print("Sum of difference matrix no {0}: {1:.4e}".format(i, d.sum()))
+            plt.matshow(np.atleast_2d(np.abs(d)))
+            plt.show()
 
     def get_results(er):
         if relative_error < 1e-7:
@@ -138,12 +163,12 @@ def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
     passed = get_results(relative_error)
 
     if display:
-        display_differences(diff)
+        analyze_difference_matrices(diff)
 
     return passed
 
 
-def white(*dims):
+def white(*dims) -> np.ndarray:
     """Returns a white noise tensor"""
     return np.random.randn(*dims) / np.sqrt(dims[0] / 2.)
 
@@ -152,111 +177,13 @@ def white_like(array):
     return white(*array.shape)
 
 
-class _ActivationFunctionBase(abc.ABC):
-    def __call__(self, Z: np.ndarray): pass
-
-    def __str__(self): raise NotImplementedError
-
-    @staticmethod
-    def derivative(Z: np.ndarray): pass
-
-
-class _Sigmoid(_ActivationFunctionBase):
-
-    def __call__(self, Z: np.ndarray):
-        return np.divide(1.0, np.add(1, np.exp(-Z)))
-
-    def __str__(self): return "sigmoid"
-
-    @staticmethod
-    def derivative(A):
-        return np.multiply(A, np.subtract(1.0, A))
-
-
-class _Tanh(_ActivationFunctionBase):
-
-    def __call__(self, Z):
-        return np.tanh(Z)
-
-    def __str__(self): return "tanh"
-
-    @staticmethod
-    def derivative(A):
-        return np.subtract(1.0, np.square(A))
-
-
-class _Linear(_ActivationFunctionBase):
-
-    def __call__(self, Z):
-        return Z
-
-    def __str__(self): return "linear"
-
-    @staticmethod
-    def derivative(Z):
-        return np.ones_like(Z)
-
-
-class _ReLU(_ActivationFunctionBase):
-
-    def __call__(self, Z):
-        return np.maximum(0.0, Z)
-
-    def __str__(self): return "relu"
-
-    @staticmethod
-    def derivative(A):
-        d = np.greater(A, 0.0).astype("float32")
-        return d
-
-
-class _SoftMax(_ActivationFunctionBase):
-
-    def __call__(self, Z):
-        eZ = np.exp(Z)
-        return eZ / np.sum(eZ, axis=1, keepdims=True)
-
-    def __str__(self): return "softmax"
-
-    @staticmethod
-    def derivative(A: np.ndarray):
-        # This is the negative of the outer product of the last axis with itself
-        J = A[..., None] * A[:, None, :]  # given by -a_i*a_j, where i =/= j
-        iy, ix = np.diag_indices_from(J[0])
-        J[:, iy, ix] = A * (1. - A)  # given by a_i(1 - a_j), where i = j
-        return J.sum(axis=1)  # sum for each sample
-
-
-class _Activation:
-
-    @property
-    def sigmoid(self):
-        return _Sigmoid()
-
-    @property
-    def tanh(self):
-        return _Tanh()
-
-    @property
-    def linear(self):
-        return _Linear()
-
-    @property
-    def relu(self):
-        return _ReLU()
-
-    @property
-    def softmax(self):
-        return _SoftMax()
-
-    def __getitem__(self, item: str):
-        if not isinstance(item, str):
-            raise TypeError("Please supply a string!")
-        item = item.lower()
-        d = {str(fn).lower(): fn for fn in (_Sigmoid(), _Tanh(), _Linear(), _ReLU(), _SoftMax())}
-        if item not in d:
-            raise IndexError("Requested activation function ({}) is unsupported!".format(item))
-        return d[item]
+def rtm(A):
+    """Converts an ndarray to a 2d array (matrix) by keeping the first dimension as the rows
+    and flattening all the other dimensions to columns"""
+    if A.ndim == 2:
+        return A
+    A = np.atleast_2d(A)
+    return A.reshape(A.shape[0], np.prod(A.shape[1:]))
 
 
 class _CostFnBase(abc.ABC):
@@ -333,13 +260,6 @@ class _Cost:
             raise IndexError("Requested cost function is unsupported!")
         return d[item]
 
-
-sigmoid = _Sigmoid()
-tanh = _Tanh()
-linear = _Linear()
-relu = _ReLU()
-softmax = _SoftMax()
-act_fns = _Activation()
 
 mse = _MSE()
 xent = _Xent()
