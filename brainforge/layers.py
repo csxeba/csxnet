@@ -596,8 +596,7 @@ class Experimental:
 
     class ConvLayer(_VecLayer):
 
-        def __init__(self, nfilters, filterx, filtery, stride=1, activation="relu"):
-            from ..util import convolve
+        def __init__(self, nfilters, filterx, filtery, activation="relu"):
 
             _VecLayer.__init__(self, activation=activation)
 
@@ -605,28 +604,29 @@ class Experimental:
             self.fx = filterx
             self.fy = filtery
             self.depth = 0
-            self.stride = stride
+            self.stride = 1
 
             self.error = None
             self.filters = None
             self.biases = None
             self.nabla_w = None
             self.nabla_b = None
-            self.op = convolve
-            self._outshape = None
+            self.op = None
 
         def connect(self, to, inshape):
-            from ..util import outshape
+            from ..ops import Convolution
+
             _VecLayer.connect(self, to, inshape)
             depth, ix, iy = inshape
-            self._outshape = outshape((ix, iy), (self.fx, self.fy), self.stride)
+            self.op = Convolution(filtershape=(self.fx, self.fy), mode="valid")
+            self.op.inshape = (ix, iy)
             self.depth = depth
             self.filters = white(self.fx, self.fy, self.depth, self.nfilters)
             self.biases = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
             self.inputs = np.copy(X)
-            out = self.activation(self.op(X, self.filters, self.stride))
+            out = self.activation(self.op(X, self.filters))
             self.output = out.reshape(self.brain.m, *self.outshape)
             return self.output
 
@@ -647,11 +647,9 @@ class Experimental:
             # The padding constant is still a question, but I guess it should be 0
 
             self.error = error * self.activation.derivative(self.output)
-            # roti = np.rot90(self.inputs, k=2)
-            rotf = np.rot90(self.filters, k=2)
-            self.nabla_w = self.op(self.inputs, self.error.transpose(3, 2, 0, 1), self.stride)
+            self.nabla_w = self.op(self.inputs, self.error.transpose(2, 3, 0, 1))
             self.nabla_b = self.error.sum(axis=1)
-            return self.op(self.error, rotf, self.stride).reshape(self.inputs.shape)
+            return self.op.backwards(self.error, self.filters, self.stride).reshape(self.inputs.shape)
 
         def shuffle(self):
             self.filters = white_like(self.filters)
@@ -672,7 +670,8 @@ class Experimental:
 
         @property
         def outshape(self):
-            return self.nfilters, self._outshape[0], self._outshape[1]
+            ox, oy = self.op.outshape
+            return self.nfilters, ox, oy
 
         def __str__(self):
             return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])

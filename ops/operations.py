@@ -58,13 +58,14 @@ class Flatten(_OpBase):
 
 
 class Convolution(_OpBase):
-    def __init__(self, mode="valid"):
+    def __init__(self, filtershape, mode="valid"):
         from ..util import convolve
         _OpBase.__init__(self)
         if mode not in ("valid", "full"):
             raise ValueError("Only valid and full convolution is supported, not {}".format(mode))
         self.mode = mode
         self.op = convolve
+        self.filtershape = filtershape
 
     def valid(self, A, F):
         return self.op(A, F, stride=1)
@@ -73,8 +74,8 @@ class Convolution(_OpBase):
         fx, fy = F.shape[:2]
         px, py = fx - 1, fy - 1
         pA = np.pad(A, pad_width=((0, 0), (0, 0), (px, px), (py, py)),
-                   mode="constant", constant_values=0.)
-        return self.valid(pA, F)
+                    mode="constant", constant_values=0.)
+        return self.valid(pA, np.rot90(F, k=2))
 
     def __call__(self, A, F):
         return self.valid(A, F) if self.mode == "valid" else self.full(A, F)
@@ -83,16 +84,11 @@ class Convolution(_OpBase):
         return self.valid(A, F) if self.mode == "full" else self.full(A, F)
 
     @property
-    def inshape(self):
-        return self._inshape
-
-    @inshape.setter
-    def inshape(self, shape):
-        _OpBase.inshape = shape
-
-    @property
     def outshape(self):
-        return self._outshape
+        if self.mode == "valid":
+            return tuple(ix - fx + 1 for ix, fx in zip(self.inshape, self.filtershape))
+        elif self.mode == "full":
+            return tuple(ix + fx - 1 for ix, fx in zip(self.inshape, self.filtershape))
 
     def __str__(self):
         return "Convolution"
