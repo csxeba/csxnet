@@ -27,7 +27,7 @@ class _OpBase(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def backwards(self, A):
+    def backwards(self, *args, **kwargs):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -55,6 +55,47 @@ class Flatten(_OpBase):
     @property
     def outshape(self):
         return np.prod(self.inshape),
+
+
+class Convolution(_OpBase):
+    def __init__(self, mode="valid"):
+        from ..util import convolve
+        _OpBase.__init__(self)
+        if mode not in ("valid", "full"):
+            raise ValueError("Only valid and full convolution is supported, not {}".format(mode))
+        self.mode = mode
+        self.op = convolve
+
+    def valid(self, A, F):
+        return self.op(A, F, stride=1)
+
+    def full(self, A, F):
+        fx, fy = F.shape[:2]
+        px, py = fx - 1, fy - 1
+        pA = np.pad(A, pad_width=((0, 0), (0, 0), (px, px), (py, py)),
+                   mode="constant", constant_values=0.)
+        return self.valid(pA, F)
+
+    def __call__(self, A, F):
+        return self.valid(A, F) if self.mode == "valid" else self.full(A, F)
+
+    def backwards(self, A, F):
+        return self.valid(A, F) if self.mode == "full" else self.full(A, F)
+
+    @property
+    def inshape(self):
+        return self._inshape
+
+    @inshape.setter
+    def inshape(self, shape):
+        _OpBase.inshape = shape
+
+    @property
+    def outshape(self):
+        return self._outshape
+
+    def __str__(self):
+        return "Convolution"
 
 
 class _ActivationFunctionBase(_OpBase):

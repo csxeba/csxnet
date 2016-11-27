@@ -677,7 +677,6 @@ class Experimental:
         def __str__(self):
             return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])
 
-
     class AboLayer(_Layer):
         def __init__(self, brain, position, activation):
             _Layer.__init__(self, brain, position, activation)
