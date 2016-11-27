@@ -607,7 +607,7 @@ class Experimental:
             self.stride = 1
 
             self.error = None
-            self.filters = None
+            self.weights = None
             self.biases = None
             self.nabla_w = None
             self.nabla_b = None
@@ -621,12 +621,12 @@ class Experimental:
             self.op = Convolution(filtershape=(self.fx, self.fy), mode="valid")
             self.op.inshape = (ix, iy)
             self.depth = depth
-            self.filters = white(self.fx, self.fy, self.depth, self.nfilters)
+            self.weights = white(self.fx, self.fy, self.depth, self.nfilters)
             self.biases = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
             self.inputs = np.copy(X)
-            out = self.activation(self.op(X, self.filters))
+            out = self.activation(self.op(X, self.weights))
             self.output = out.reshape(self.brain.m, *self.outshape)
             return self.output
 
@@ -637,36 +637,30 @@ class Experimental:
             :return:
             """
 
-            # Some things to implement:
-            # Backwards pass is a convolution between the error tensor and the
-            # flipped kernel.
-            # Gradients are given by the convolution between the transposed
-            # input tensor and the error tensor.
-            # If the forward pass was a "valid" convolution, the the backwards
-            # pass must be a "full" convolution.
-            # The padding constant is still a question, but I guess it should be 0
-
+            # Inputs: (20x3x28x28) Error.T: (25x25x1x20)
             self.error = error * self.activation.derivative(self.output)
-            self.nabla_w = self.op(self.inputs, self.error.transpose(2, 3, 0, 1))
+            iT = self.inputs.transpose(1, 0, 2, 3)
+            eT = self.error.transpose(2, 3, 0, 1)
+            self.nabla_w = self.op(iT, eT)
             self.nabla_b = self.error.sum(axis=1)
-            return self.op.backwards(self.error, self.filters, self.stride).reshape(self.inputs.shape)
+            return self.op.backwards(self.error, self.weights).reshape(self.inputs.shape)
 
         def shuffle(self):
-            self.filters = white_like(self.filters)
+            self.weights = white_like(self.weights)
             self.biases = np.zeros_like(self.biases)
 
         def get_weights(self, unfold=True):
             if unfold:
-                return np.concatenate((self.filters.ravel(), self.biases.ravel()))
+                return np.concatenate((self.weights.ravel(), self.biases.ravel()))
             else:
-                return [self.filters, self.biases]
+                return [self.weights, self.biases]
 
         def set_weights(self, w, fold=True):
             if fold:
-                self.filters = w[:self.filters.size].reshape(self.filters.shape)
-                self.biases = w[self.filters.size:].reshape(self.biases.shape)
+                self.weights = w[:self.weights.size].reshape(self.weights.shape)
+                self.biases = w[self.weights.size:].reshape(self.biases.shape)
             else:
-                self.filters, self.biases = w
+                self.weights, self.biases = w
 
         @property
         def outshape(self):
