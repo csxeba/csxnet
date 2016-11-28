@@ -3,7 +3,7 @@ import warnings
 
 import numpy as np
 
-from ..util import white, white_like, rtm
+from ..util import white, white_like
 from ..ops import sigmoid
 
 
@@ -37,14 +37,22 @@ class _Layer(abc.ABC):
     @abc.abstractmethod
     def backpropagate(self, error) -> np.ndarray: raise NotImplementedError
 
-    @abc.abstractmethod
-    def shuffle(self) -> None: raise NotImplementedError
+    def shuffle(self) -> None:
+        self.weights = white_like(self.weights)
+        self.biases = np.zeros_like(self.biases)
 
-    @abc.abstractmethod
-    def get_weights(self, unfold=True): raise NotImplementedError
+    def get_weights(self, unfold=True):
+        if unfold:
+            return np.concatenate((self.weights.ravel(), self.biases.ravel()))
+        return [self.weights, self.biases]
 
-    @abc.abstractmethod
-    def set_weights(self, w, fold=True): raise NotImplementedError
+    def set_weights(self, w, fold=True):
+        if fold:
+            sw = self.weights
+            self.weights = w[:sw.size].reshape(sw.shape)
+            self.biases = w[sw.size:].reshape(self.biases.shape)
+        else:
+            self.weights, self.biases = w
 
     @property
     @abc.abstractmethod
@@ -80,23 +88,6 @@ class _FFLayer(_Layer):
         _Layer.connect(self, to, inshape)
         self.nabla_w = np.zeros_like(self.weights)
         self.nabla_b = np.zeros_like(self.biases)
-
-    def shuffle(self) -> None:
-        self.weights = white_like(self.weights)
-        self.biases = np.zeros_like(self.biases)
-
-    def get_weights(self, unfold=True):
-        if unfold:
-            return np.concatenate((self.weights.ravel(), self.biases.ravel()))
-        return [self.weights, self.biases]
-
-    def set_weights(self, w, fold=True):
-        if fold:
-            sw = self.weights
-            self.weights = w[:sw.size].reshape(sw.shape)
-            self.biases = w[sw.size:].reshape(self.biases.shape)
-        else:
-            self.weights, self.biases = w
 
     @property
     def gradients(self):
@@ -644,23 +635,6 @@ class Experimental:
             self.nabla_w = self.op(iT, eT)
             self.nabla_b = self.error.sum(axis=1)
             return self.op.backwards(self.error, self.weights).reshape(self.inputs.shape)
-
-        def shuffle(self):
-            self.weights = white_like(self.weights)
-            self.biases = np.zeros_like(self.biases)
-
-        def get_weights(self, unfold=True):
-            if unfold:
-                return np.concatenate((self.weights.ravel(), self.biases.ravel()))
-            else:
-                return [self.weights, self.biases]
-
-        def set_weights(self, w, fold=True):
-            if fold:
-                self.weights = w[:self.weights.size].reshape(self.weights.shape)
-                self.biases = w[self.weights.size:].reshape(self.biases.shape)
-            else:
-                self.weights, self.biases = w
 
         @property
         def outshape(self):
