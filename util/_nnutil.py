@@ -42,7 +42,7 @@ def calcsteps(inshape: tuple, fshape: tuple, stride: int):
 
 def convolve(X, F, stride=1):
     """
-    Convolution with a depth domain (for e.g. RGB images)
+    Valid convolution with a depth domain (for e.g. RGB images)
 
     :param X: input: 4D tensor: (batch, channels, x, y)
     :param F: filter: 4D tensor: (x, y, channels, filter number)
@@ -113,17 +113,21 @@ def analytical_gradients(network, X, y):
     return anagrads
 
 
-def gradient_check(network, X, y, epsilon=1e-5, display=False, verbose=1):
+def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
 
     def fold_difference_matrices(dvec):
         diffs = []
         start = 0
         for layer in network.layers[1:]:
-            weight = start + layer.weights.size
-            bias = weight + layer.biases.size
-            diffs.append(dvec[start:weight].reshape(layer.weights.shape))
-            diffs.append(dvec[weight:bias].reshape(layer.biases.shape))
-            start = bias
+            if not layer.trainable:
+                continue
+            iweight = start + layer.weights.size
+            ibias = iweight + layer.biases.size
+            wshape = [sh for sh in layer.weights.shape if sh > 1]
+            bshape = [sh for sh in layer.biases.shape if sh > 1]
+            diffs.append(dvec[start:iweight].reshape(wshape))
+            diffs.append(dvec[iweight:ibias].reshape(bshape))
+            start = ibias
         return diffs
 
     def analyze_difference_matrices(dvec):

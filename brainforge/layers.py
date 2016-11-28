@@ -9,7 +9,7 @@ from ..ops import sigmoid
 
 class _Layer(abc.ABC):
     """Abstract base class for all layer type classes"""
-    def __init__(self, activation):
+    def __init__(self, activation, **kw):
 
         from ..ops import act_fns as activations
 
@@ -17,7 +17,6 @@ class _Layer(abc.ABC):
         self.inputs = None
         self.output = None
 
-        self.trainable = True
         self.connected = False
 
         self.optimizer = None
@@ -26,6 +25,11 @@ class _Layer(abc.ABC):
             self.activation = activations[activation]
         else:
             self.activation = activation
+
+        if "trainable" in kw:
+            self.trainable = kw["trainable"]
+        else:
+            self.trainable = True
 
     @abc.abstractmethod
     def connect(self, to, inshape):
@@ -55,6 +59,14 @@ class _Layer(abc.ABC):
             self.weights, self.biases = w
 
     @property
+    def gradients(self):
+        return np.concatenate([self.nabla_w.ravel(), self.nabla_b.ravel()])
+
+    @property
+    def nparams(self):
+        return self.weights.size + self.biases.size
+
+    @property
     @abc.abstractmethod
     def outshape(self): raise NotImplementedError
 
@@ -73,8 +85,8 @@ class _VecLayer(_Layer):
 
 class _FFLayer(_Layer):
     """Base class for the fully connected layer types"""
-    def __init__(self, neurons: int, activation):
-        _Layer.__init__(self, activation)
+    def __init__(self, neurons: int, activation, **kw):
+        _Layer.__init__(self, activation, **kw)
 
         self.neurons = neurons
 
@@ -90,16 +102,8 @@ class _FFLayer(_Layer):
         self.nabla_b = np.zeros_like(self.biases)
 
     @property
-    def gradients(self):
-        return np.concatenate([self.nabla_w.ravel(), self.nabla_b.ravel()])
-
-    @property
     def outshape(self):
         return self.neurons if isinstance(self.neurons, tuple) else (self.neurons,)
-
-    @property
-    def nparams(self):
-        return self.weights.size + self.biases.size
 
 
 class _Recurrent(_FFLayer):
@@ -143,9 +147,8 @@ class _Recurrent(_FFLayer):
 class _Op(_Layer):
 
     def __init__(self, op):
-        _Layer.__init__(self, activation="linear")
+        _Layer.__init__(self, activation="linear", trainable=False)
         self.op = op
-        self.trainable = False
 
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
         self.output = self.op(stimuli)
@@ -172,15 +175,14 @@ class _Op(_Layer):
 
     @property
     def outshape(self):
-        return self.op.outshape
+        return self.op.outshape()
 
 
 class InputLayer(_Layer):
 
     def __init__(self, shape):
-        _Layer.__init__(self, activation="linear")
+        _Layer.__init__(self, activation="linear", trainable=False)
         self.neurons = shape
-        self.trainable = False
 
     def connect(self, to, inshape):
         _Layer.connect(self, to, inshape)
@@ -226,10 +228,10 @@ class DenseLayer(_FFLayer):
     Elementary building block of the Multilayer Perceptron.
     """
 
-    def __init__(self, neurons, activation):
+    def __init__(self, neurons, activation, **kw):
         if isinstance(neurons, tuple):
             neurons = neurons[0]
-        _FFLayer.__init__(self,  neurons=neurons, activation=activation)
+        _FFLayer.__init__(self,  neurons=neurons, activation=activation, **kw)
 
     def connect(self, to, inshape):
         if len(inshape) != 1:
@@ -282,11 +284,10 @@ class Flatten(_Op):
 class DropOut(_Layer):
 
     def __init__(self, dropchance):
-        _Layer.__init__(self, activation="linear")
+        _Layer.__init__(self, activation="linear", trainable=False)
         self.dropchance = 1. - dropchance
         self.mask = None
         self.neurons = None
-        self.trainable = False
 
     def connect(self, to, inshape):
         self.neurons = inshape
@@ -587,15 +588,17 @@ class Experimental:
 
     class ConvLayer(_VecLayer):
 
-        def __init__(self, nfilters, filterx, filtery, activation="relu"):
+        def __init__(self, nfilters, filterx, filtery, activation="relu", **kw):
 
-            _VecLayer.__init__(self, activation=activation)
+            _VecLayer.__init__(self, activation=activation, **kw)
 
             self.nfilters = nfilters
             self.fx = filterx
             self.fy = filtery
             self.depth = 0
             self.stride = 1
+
+            self.inshape = None
 
             self.error = None
             self.weights = None
@@ -605,12 +608,12 @@ class Experimental:
             self.op = None
 
         def connect(self, to, inshape):
-            from ..ops import Convolution
+            from ..ops import ScipySigConv
 
             _VecLayer.connect(self, to, inshape)
             depth, ix, iy = inshape
-            self.op = Convolution(filtershape=(self.fx, self.fy), mode="valid")
-            self.op.inshape = (ix, iy)
+            self.op = ScipySigConv(filtershape=(self.fx, self.fy), mode="valid")
+            self.inshape = inshape
             self.depth = depth
             self.weights = white(self.fx, self.fy, self.depth, self.nfilters)
             self.biases = np.zeros((self.nfilters,))
@@ -628,17 +631,18 @@ class Experimental:
             :return:
             """
 
-            # Inputs: (20x3x28x28) Error.T: (25x25x1x20)
             self.error = error * self.activation.derivative(self.output)
+            # iT = np.rot90(self.inputs.transpose(2, 3, 1, 0), 2)
+            # iT = iT.transpose(2, 3, 0, 1)
             iT = self.inputs.transpose(1, 0, 2, 3)
             eT = self.error.transpose(2, 3, 0, 1)
-            self.nabla_w = self.op(iT, eT)
-            self.nabla_b = self.error.sum(axis=1)
+            self.nabla_w = self.op(iT, eT).transpose(2, 3, 1, 0)
+            self.nabla_b = self.error.sum(axis=(0, 2, 3))
             return self.op.backwards(self.error, self.weights).reshape(self.inputs.shape)
 
         @property
         def outshape(self):
-            ox, oy = self.op.outshape
+            ox, oy = tuple(ix - fx + 1 for ix, fx in zip(self.inshape[-2:], (self.fx, self.fy)))
             return self.nfilters, ox, oy
 
         def __str__(self):

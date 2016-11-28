@@ -10,12 +10,27 @@ def pull_mnist_data():
     return mnist
 
 
+def build_keras_reference(data: CData):
+    from keras.models import Sequential
+    from keras.layers import Conv2D, Dense, Flatten
+    inshape, outshape = data.neurons_required
+    net = Sequential([
+        Conv2D(nb_filter=1, nb_row=3, nb_col=5, activation="tanh",
+               input_shape=inshape),
+        Flatten(),
+        Dense(outshape[0], activation="sigmoid")
+    ])
+    net.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["acc"])
+    return net
+
+
 def build_cnn(data: CData):
     inshape, outshape = data.neurons_required
     net = Network(input_shape=inshape, name="TestBrainforgeCNN")
-    net.add(Experimental.ConvLayer(1, 4, 4))
+    net.add(Experimental.ConvLayer(2, 9, 9, activation="tanh"))
+    net.add(Experimental.ConvLayer(1, 9, 9, activation="tanh"))
     net.add(Flatten())
-    net.add(DenseLayer(10, activation="sigmoid"))
+    net.add(DenseLayer(outshape, activation="sigmoid", trainable=False))
     net.finalize("xent")
     return net
 
@@ -23,9 +38,9 @@ def build_cnn(data: CData):
 def xperiment():
     mnist = pull_mnist_data()
     net = build_cnn(mnist)
+    net.gradient_check(*mnist.table("testing", m=10))
 
-    net.fit(*mnist.table("learning"), batch_size=20,
-            epochs=10, monitor=["acc"],
+    net.fit(*mnist.table("learning"), batch_size=20, epochs=10, monitor=("acc",),
             validation=mnist.table("testing"))
 
 
