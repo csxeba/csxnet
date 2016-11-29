@@ -3,9 +3,11 @@ import numpy as np
 
 class SGD:
 
-    def __init__(self, layer, eta=0.01):
+    def __init__(self, layer, eta=0.01, lambda1=0.0, lambda2=0.0):
         self.layer = layer
         self.eta = eta
+        self.lambda1 = lambda1
+        self.lambda2 = lambda2
 
     def __call__(self, m):
         eta = self.eta / m
@@ -34,11 +36,10 @@ class Momentum(SGD):
         self.layer.biases -= self.vb
 
 
-class Adagrad:
+class Adagrad(SGD):
 
     def __init__(self, layer, eta=0.01, epsilon=1e-8):
-        self.layer = layer
-        self.eta = eta
+        SGD.__init__(self, layer, eta)
         self.epsilon = epsilon
         self.mW = np.zeros_like(layer.weights)
         self.mb = np.zeros_like(layer.biases)
@@ -65,11 +66,10 @@ class RMSprop(Adagrad):
         self.layer.biases -= eta * self.layer.nabla_b / (np.sqrt(self.mb) + self.epsilon)
 
 
-class Adam:
+class Adam(SGD):
 
     def __init__(self, layer, eta=0.1, decay_memory=0.9, decay_velocity=0.999, epsilon=1e-8):
-        self.layer = layer
-        self.eta = eta
+        SGD.__init__(self, layer, eta)
         self.decay_memory = decay_memory
         self.decay_velocity = decay_velocity
         self.epsilon = epsilon

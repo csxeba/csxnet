@@ -1,3 +1,4 @@
+"""Wrappers for vector-operations and other functions"""
 import abc
 
 import numpy as np
@@ -5,21 +6,12 @@ import numpy as np
 
 class _OpBase(abc.ABC):
 
-    def __init__(self, inshape=None):
-        self.inshape = inshape
-
     @abc.abstractmethod
     def outshape(self, inshape):
-        if inshape is None and self.inshape is None:
-            raise RuntimeError("Please supply input shape for output shape calculation!")
-        return inshape if inshape else self.inshape
-
-    @abc.abstractmethod
-    def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def backwards(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -31,7 +23,6 @@ class Flatten(_OpBase):
 
     def __init__(self):
         from ..util import rtm
-        _OpBase.__init__(self)
         self.op = rtm
 
     def __str__(self):
@@ -40,28 +31,51 @@ class Flatten(_OpBase):
     def __call__(self, A):
         return self.op(A)
 
-    def backwards(self, A):
+    def outshape(self, inshape=None):
+        return np.prod(inshape),  # return as tuple!
+
+
+class Reshape(_OpBase):
+
+    def __init__(self, shape):
+        self.shape = shape
+
+    def __str__(self):
+        return "Reshape"
+
+    def __call__(self, A):
         m = A.shape[0]
-        return A.reshape(m, *self.inshape)
+        return A.reshape(m, *self.shape)
 
     def outshape(self, inshape=None):
-        ish = _OpBase.outshape(self, inshape)
-        return np.prod(ish),  # return as tuple!
+        return self.shape
 
 
 class Convolution(_OpBase):
 
-    def __init__(self, filtershape, mode="valid"):
-        from ..util import convolve
+    def __init__(self, mode="valid"):
         _OpBase.__init__(self)
         if mode not in ("valid", "full"):
             raise ValueError("Only valid and full convolution is supported, not {}".format(mode))
         self.mode = mode
-        self.op = convolve
-        self.filtershape = filtershape
 
     def valid(self, A, F):
-        return self.op(A, F, stride=1)
+        m, depth, Xshape = A.shape[0], A.shape[1], A.shape[2:]
+        Fx, Fy, Fdepth, nFilt = F.shape
+        Fshape = Fx, Fy
+        recfield_size = Fx * Fy * Fdepth
+        if Fdepth != depth:
+            err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
+            err += "input depth: {} != {} :filter depth".format(depth, Fdepth)
+            raise ValueError(err)
+
+        rfields = np.array([[pic[:, sx:ex, sy:ey].ravel() for pic in A]
+                            for sx, ex, sy, ey in self.calcsteps(Xshape, Fshape)])
+
+        oshape = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
+        output = np.matmul(rfields, F.reshape(recfield_size, nFilt))
+        output = output.transpose(2, 0, 1).reshape(m, nFilt, *oshape)
+        return output
 
     def full(self, A, F):
         fx, fy = F.shape[:2]
@@ -73,55 +87,56 @@ class Convolution(_OpBase):
     def __call__(self, A, F):
         return self.valid(A, F) if self.mode == "valid" else self.full(A, F)
 
-    def backwards(self, E, F):
-        rF = np.rot90(F, 2)
-        return self.valid(E, rF) if self.mode == "full" else self.full(E, rF)
-
     def outshape(self, inshape=None, fshape=None):
-        ish = _OpBase.outshape(self, inshape)
-        assert fshape is not None or self.filtershape is not None
-        fsh = fshape if fshape else self.filtershape
         if self.mode == "valid":
-            return tuple(ix - fx + 1 for ix, fx in zip(ish[-2:], fsh[:2]))
+            return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
         elif self.mode == "full":
-            return tuple(ix + fx - 1 for ix, fx in zip(ish[-2:], fsh[:2]))
+            return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
+
+    def calcsteps(self, inshape, fshape):
+        xsteps, ysteps = self.outshape(inshape, fshape)
+        fx, fy = fshape
+
+        for sy in range(0, ysteps):
+            for sx in range(0, xsteps):
+                yield sx, sx + fx, sy, sy + fy
 
     def __str__(self):
         return "Convolution"
 
 
-class ScipySigConv(Convolution):
+class ScipySigConv:
 
-    def __init__(self, filtershape, mode="valid"):
+    def __init__(self):
         from scipy.signal import convolve
-        Convolution.__init__(self, filtershape, mode)
         self.op = convolve
 
     def __str__(self):
         return "scipy.signal.convolution"
 
-    def __call__(self, A, F):
-        m, ic, ix, iy = A.shape
-        fx, fy, fc, nf = F.shape
-        ox, oy = self.outshape(A.shape, F.shape)
+    def __call__(self, A, F, mode="valid"):
+        m, ic, iy, ix = A.shape
+        nf, fc, fy, fx = F.shape
+        ox, oy = self.outshape(A.shape, F.shape, mode)
 
         assert ic == fc, "Number of channels got messed up"
-
-        F = F.transpose(3, 2, 0, 1)
 
         output = np.zeros((m, nf, 1, ox, oy))
         for i, filt in enumerate(F):
             for j, batch in enumerate(A):
-                conved = self.op(batch, filt, mode=self.mode)
+                conved = self.op(batch, filt, mode=mode)
                 output[j, i] = conved
 
         return output[:, :, 0, :, :]
 
-    def backwards(self, E, F):
-        self.mode = "full" if self.mode == "valid" else "valid"
-        matrix = self(E, np.rot90(F, 2))
-        self.mode = "full" if self.mode == "valid" else "valid"
-        return matrix
+    @staticmethod
+    def outshape(inshape=None, fshape=None, mode="valid"):
+        if mode == "valid":
+            return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
+        elif mode == "full":
+            return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
+        else:
+            raise RuntimeError("Unsupported mode: " + str(mode))
 
 
 class _ActivationFunctionBase(_OpBase):

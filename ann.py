@@ -140,7 +140,7 @@ class Network:
 
         if verbose:
             print_progress()
-        print()
+            print()
         self.age += 1
         return costs
 

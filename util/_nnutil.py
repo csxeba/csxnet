@@ -11,63 +11,6 @@ def l2term(eta, lmbd, N):
     return 1 - ((eta * lmbd) / N)
 
 
-def outshape(inshape: tuple, fshape: tuple, stride: int):
-    """
-    Calculates the shape of an output matrix if a filter of shape
-    <fshape> gets slided along a matrix of shape <fanin> with a
-    stride of <stride>.
-    Returns x, y sizes of the output matrix
-    """
-    output = [int((indim - fdim) / stride) + 1 if (indim - fdim) % stride == 0 else "NaN"
-              for indim, fdim in zip(inshape, fshape)]
-    if "NaN" in output:
-        raise RuntimeError("Shapes not compatible!\nin: {}, filter: {}".format(inshape, fshape))
-    return output
-
-
-def calcsteps(inshape: tuple, fshape: tuple, stride: int):
-    """
-    Calculates the coordinates required to slide
-    a filter of shape <fshape> along a matrix of shape <inshape>
-    with a stride of <stride>.
-    Returns a list of coordinates
-    """
-    xsteps, ysteps = outshape(inshape, fshape, stride)
-    fx, fy = fshape
-
-    for sy in range(0, ysteps, stride):
-        for sx in range(0, xsteps, stride):
-            yield sx, sx + fx, sy, sy + fy
-
-
-def convolve(X, F, stride=1):
-    """
-    Valid convolution with a depth domain (for e.g. RGB images)
-
-    :param X: input: 4D tensor: (batch, channels, x, y)
-    :param F: filter: 4D tensor: (x, y, channels, filter number)
-    :param stride: step size in convolution
-    :return: 4D tensor: (batch, channel, newX, newY)
-    """
-
-    m, depth, Xshape = X.shape[0], X.shape[1], X.shape[2:]
-    Fx, Fy, Fdepth, nFilt = F.shape
-    Fshape = Fx, Fy
-    recfield_size = Fx*Fy*Fdepth
-    if Fdepth != depth:
-        err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
-        err += "input depth: {} != {} :filter depth".format(depth, Fdepth)
-        raise ValueError(err)
-
-    rfields = np.array([[pic[:, sx:ex, sy:ey].ravel() for pic in X]
-                        for sx, ex, sy, ey in calcsteps(Xshape, Fshape, stride=stride)])
-
-    oshape = outshape(Xshape, Fshape, stride)
-    output = np.matmul(rfields, F.reshape(recfield_size, nFilt))
-    output = output.transpose(2, 0, 1).reshape(m, nFilt, *oshape)
-    return output
-
-
 def numerical_gradients(network, X, y, epsilon=1e-5):
     ws = network.get_weights(unfold=True)
     numgrads = np.zeros_like(ws)

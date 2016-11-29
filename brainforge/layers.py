@@ -16,6 +16,12 @@ class _Layer(abc.ABC):
         self.brain = None
         self.inputs = None
         self.output = None
+        self.inshape = None
+
+        self.weights = None
+        self.biases = None
+        self.nabla_w = None
+        self.nabla_b = None
 
         self.connected = False
 
@@ -34,6 +40,7 @@ class _Layer(abc.ABC):
     @abc.abstractmethod
     def connect(self, to, inshape):
         self.brain = to
+        self.inshape = inshape
 
     @abc.abstractmethod
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray: raise NotImplementedError
@@ -87,13 +94,7 @@ class _FFLayer(_Layer):
     """Base class for the fully connected layer types"""
     def __init__(self, neurons: int, activation, **kw):
         _Layer.__init__(self, activation, **kw)
-
         self.neurons = neurons
-
-        self.weights = None
-        self.biases = None
-        self.nabla_w = None
-        self.nabla_b = None
 
     @abc.abstractmethod
     def connect(self, to, inshape):
@@ -121,7 +122,7 @@ class _Recurrent(_FFLayer):
         self.cache = None
 
     @abc.abstractmethod
-    def feedforward(self, stimuli: np.ndarray):
+    def feedforward(self, stimuli):
         self.inputs = stimuli.transpose(1, 0, 2)
         self.time = self.inputs.shape[0]
         self.Zs, self.gates, self.cache = [], [], []
@@ -146,23 +147,23 @@ class _Recurrent(_FFLayer):
 
 class _Op(_Layer):
 
-    def __init__(self, op):
+    def __init__(self):
         _Layer.__init__(self, activation="linear", trainable=False)
-        self.op = op
+        self.opf = None
+        self.opb = None
 
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
-        self.output = self.op(stimuli)
+        self.output = self.opf(stimuli)
         return self.output
 
     def connect(self, to, inshape):
         _Layer.connect(self, to, inshape)
-        self.op.inshape = inshape
 
     def backpropagate(self, error) -> np.ndarray:
-        return self.op.backwards(error)
+        return self.opb(error)
 
     def __str__(self):
-        return str(self.op)
+        return str(self.opf)
 
     def get_weights(self, unfold=True):
         return NotImplemented
@@ -175,7 +176,7 @@ class _Op(_Layer):
 
     @property
     def outshape(self):
-        return self.op.outshape()
+        return self.opf.outshape(self.inshape)
 
 
 class InputLayer(_Layer):
@@ -211,11 +212,6 @@ class InputLayer(_Layer):
     @property
     def outshape(self):
         return self.neurons if isinstance(self.neurons, tuple) else (self.neurons,)
-
-    @property
-    def weights(self):
-        warnings.warn("Queried weights of an InputLayer!", RuntimeWarning)
-        return None
 
     def __str__(self):
         return str(self.neurons)
@@ -273,12 +269,20 @@ class DenseLayer(_FFLayer):
 
 class Flatten(_Op):
 
-    def __init__(self):
-        from ..ops import Flatten as op
-        _Op.__init__(self, op=op())
+    def connect(self, to, inshape):
+        from ..ops import Flatten as Flat, Reshape as Resh
+        _Op.connect(self, to, inshape)
+        self.opf = Flat()
+        self.opb = Resh(inshape)
+
+
+class Reshape(_Op):
 
     def connect(self, to, inshape):
+        from ..ops import Flatten as Flat, Reshape as Resh
         _Op.connect(self, to, inshape)
+        self.opf = Resh(inshape)
+        self.opb = Flat()
 
 
 class DropOut(_Layer):
@@ -588,7 +592,7 @@ class Experimental:
 
     class ConvLayer(_VecLayer):
 
-        def __init__(self, nfilters, filterx, filtery, activation="relu", **kw):
+        def __init__(self, nfilters, filterx, filtery, activation="relu", mode="valid", **kw):
 
             _VecLayer.__init__(self, activation=activation, **kw)
 
@@ -597,31 +601,26 @@ class Experimental:
             self.fy = filtery
             self.depth = 0
             self.stride = 1
+            self.mode = mode
 
             self.inshape = None
 
-            self.error = None
-            self.weights = None
-            self.biases = None
-            self.nabla_w = None
-            self.nabla_b = None
             self.op = None
 
         def connect(self, to, inshape):
             from ..ops import ScipySigConv
 
             _VecLayer.connect(self, to, inshape)
-            depth, ix, iy = inshape
-            self.op = ScipySigConv(filtershape=(self.fx, self.fy), mode="valid")
+            depth, iy, ix = inshape
+            self.op = ScipySigConv()
             self.inshape = inshape
             self.depth = depth
-            self.weights = white(self.fx, self.fy, self.depth, self.nfilters)
+            self.weights = white(self.nfilters, self.depth, self.fy, self.fx)
             self.biases = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
             self.inputs = np.copy(X)
-            out = self.activation(self.op(X, self.weights))
-            self.output = out.reshape(self.brain.m, *self.outshape)
+            self.output = self.activation(self.op(self.inputs, self.weights, self.mode))
             return self.output
 
         def backpropagate(self, error):
@@ -631,19 +630,19 @@ class Experimental:
             :return:
             """
 
-            self.error = error * self.activation.derivative(self.output)
-            # iT = np.rot90(self.inputs.transpose(2, 3, 1, 0), 2)
-            # iT = iT.transpose(2, 3, 0, 1)
+            error *= self.activation.derivative(self.output)
             iT = self.inputs.transpose(1, 0, 2, 3)
-            eT = self.error.transpose(2, 3, 0, 1)
-            self.nabla_w = self.op(iT, eT).transpose(2, 3, 1, 0)
-            self.nabla_b = self.error.sum(axis=(0, 2, 3))
-            return self.op.backwards(self.error, self.weights).reshape(self.inputs.shape)
+            eT = error.transpose(1, 0, 2, 3)
+            self.nabla_w = self.op(iT, eT)
+            self.nabla_b = error.sum(axis=(0, 2, 3))
+            rW = self.weights[:, :, ::-1, ::-1]
+            return self.op(error, rW, "full").reshape(self.inputs.shape)
 
         @property
         def outshape(self):
-            ox, oy = tuple(ix - fx + 1 for ix, fx in zip(self.inshape[-2:], (self.fx, self.fy)))
-            return self.nfilters, ox, oy
+            oy, ox = tuple(ix - fx + 1 for ix, fx in
+                           zip(self.inshape[-2:], (self.fx, self.fy)))
+            return self.nfilters, oy, ox
 
         def __str__(self):
             return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])
