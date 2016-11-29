@@ -58,6 +58,10 @@ class Convolution(_OpBase):
         nF, Fc, Fy, Fx = F.shape
         Fshape = Fy, Fx
         recfield_size = Fx * Fy * Fc
+        oshape = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
+        steps = list(self.calcsteps(Xshape, Fshape))
+        rfields = np.zeros((m, len(steps), Fx*Fy*c))
+
         if Fc != c:
             err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
             err += "input depth: {} != {} :filter depth".format(c, Fc)
@@ -65,13 +69,10 @@ class Convolution(_OpBase):
 
         # rfields = np.array([[pic[:, sy:ey, sx:ex].ravel() for pic in A]
         #                     for sx, ex, sy, ey in self.calcsteps(Xshape, Fshape)])
-        steps = list(self.calcsteps(Xshape, Fshape))
-        rfields = np.zeros((m, len(steps), Fshape[0]*Fshape[1]*c))
         for i, pic in enumerate(A):
             for j, (sy, ey, sx, ex) in enumerate(steps):
                 rfields[i][j] = pic[:, sy:ey, sx:ex].ravel()
 
-        oshape = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
         output = np.matmul(rfields, F.reshape(recfield_size, nF))
         output = output.transpose(2, 0, 1).reshape(m, nF, *oshape)
         return output
@@ -88,9 +89,9 @@ class Convolution(_OpBase):
 
     def outshape(self, inshape, fshape, mode="valid"):
         if mode == "valid":
-            return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
+            return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
         elif mode == "full":
-            return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
+            return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
         else:
             raise RuntimeError("Unsupported mode:", mode)
 
