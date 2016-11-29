@@ -7,7 +7,7 @@ import numpy as np
 class _OpBase(abc.ABC):
 
     @abc.abstractmethod
-    def outshape(self, inshape):
+    def outshape(self, *args, **kwargs):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -53,28 +53,27 @@ class Reshape(_OpBase):
 
 class Convolution(_OpBase):
 
-    def __init__(self, mode="valid"):
-        _OpBase.__init__(self)
-        if mode not in ("valid", "full"):
-            raise ValueError("Only valid and full convolution is supported, not {}".format(mode))
-        self.mode = mode
-
     def valid(self, A, F):
-        m, depth, Xshape = A.shape[0], A.shape[1], A.shape[2:]
-        Fx, Fy, Fdepth, nFilt = F.shape
-        Fshape = Fx, Fy
-        recfield_size = Fx * Fy * Fdepth
-        if Fdepth != depth:
+        m, c, Xshape = A.shape[0], A.shape[1], A.shape[2:]
+        nF, Fc, Fy, Fx = F.shape
+        Fshape = Fy, Fx
+        recfield_size = Fx * Fy * Fc
+        if Fc != c:
             err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
-            err += "input depth: {} != {} :filter depth".format(depth, Fdepth)
+            err += "input depth: {} != {} :filter depth".format(c, Fc)
             raise ValueError(err)
 
-        rfields = np.array([[pic[:, sx:ex, sy:ey].ravel() for pic in A]
-                            for sx, ex, sy, ey in self.calcsteps(Xshape, Fshape)])
+        # rfields = np.array([[pic[:, sy:ey, sx:ex].ravel() for pic in A]
+        #                     for sx, ex, sy, ey in self.calcsteps(Xshape, Fshape)])
+        steps = list(self.calcsteps(Xshape, Fshape))
+        rfields = np.zeros((m, len(steps), Fshape[0]*Fshape[1]*c))
+        for i, pic in enumerate(A):
+            for j, (sy, ey, sx, ex) in enumerate(steps):
+                rfields[i][j] = pic[:, sy:ey, sx:ex].ravel()
 
         oshape = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
-        output = np.matmul(rfields, F.reshape(recfield_size, nFilt))
-        output = output.transpose(2, 0, 1).reshape(m, nFilt, *oshape)
+        output = np.matmul(rfields, F.reshape(recfield_size, nF))
+        output = output.transpose(2, 0, 1).reshape(m, nF, *oshape)
         return output
 
     def full(self, A, F):
@@ -84,22 +83,24 @@ class Convolution(_OpBase):
                     mode="constant", constant_values=0.)
         return self.valid(pA, F)
 
-    def __call__(self, A, F):
-        return self.valid(A, F) if self.mode == "valid" else self.full(A, F)
+    def __call__(self, A, F, mode="valid"):
+        return self.valid(A, F) if mode == "valid" else self.full(A, F)
 
-    def outshape(self, inshape=None, fshape=None):
-        if self.mode == "valid":
+    def outshape(self, inshape, fshape, mode="valid"):
+        if mode == "valid":
             return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
-        elif self.mode == "full":
+        elif mode == "full":
             return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[:2]))
+        else:
+            raise RuntimeError("Unsupported mode:", mode)
 
     def calcsteps(self, inshape, fshape):
         xsteps, ysteps = self.outshape(inshape, fshape)
-        fx, fy = fshape
+        fy, fx = fshape
 
         for sy in range(0, ysteps):
             for sx in range(0, xsteps):
-                yield sx, sx + fx, sy, sy + fy
+                yield sy, sy + fy, sx, sx + fx
 
     def __str__(self):
         return "Convolution"
@@ -108,8 +109,8 @@ class Convolution(_OpBase):
 class ScipySigConv:
 
     def __init__(self):
-        from scipy.signal import convolve
-        self.op = convolve
+        from scipy.signal import correlate
+        self.op = correlate
 
     def __str__(self):
         return "scipy.signal.convolution"

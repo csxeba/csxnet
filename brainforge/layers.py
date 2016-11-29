@@ -608,11 +608,11 @@ class Experimental:
             self.op = None
 
         def connect(self, to, inshape):
-            from ..ops import ScipySigConv
+            from ..ops import Convolution
 
             _VecLayer.connect(self, to, inshape)
             depth, iy, ix = inshape
-            self.op = ScipySigConv()
+            self.op = Convolution()
             self.inshape = inshape
             self.depth = depth
             self.weights = white(self.nfilters, self.depth, self.fy, self.fx)

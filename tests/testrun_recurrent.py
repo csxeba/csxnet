@@ -76,4 +76,4 @@ def smallrun():
 
 
 if __name__ == '__main__':
-    smallrun()
+    xperiment()
