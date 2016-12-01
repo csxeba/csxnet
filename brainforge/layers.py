@@ -494,15 +494,18 @@ class EchoLayer(RLayer):
 class Experimental:
 
     class PoolLayer(_VecLayer):
-        def __init__(self, brain, inshape, fshape, stride, position):
-            _VecLayer.__init__(self, brain=brain,
-                               inshape=inshape, fshape=fshape,
-                               stride=stride, position=position,
-                               activation="linear")
-            self.outdim = self.inshape[0], self.outshape[0], self.outshape[1]
-            self.backpass_filter = None
-            print("<PoolLayer> created with fanin {} and outshape {} @ position {}"
-                  .format(self.inshape, self.outshape, position))
+
+        def __init__(self, fdim):
+            _VecLayer.__init__(self, activation="linear", trainable=False)
+            self.fdim = fdim
+            self.dim = 0
+            self.filter = None
+
+        def connect(self, to, inshape):
+            ic, iy, ix = inshape
+            _VecLayer.connect()
+            self.filter = np.zeros(inshape)
+            self.output = np.zeros((ic, iy // self.fdim, ix // self.fdim))
 
         def feedforward(self, questions):
             """
@@ -534,7 +537,7 @@ class Experimental:
                         index += 1
 
             self.output = result.reshape([m] + list(self.outshape))
-            return self.output
+            return self.output.shape[-3:]
 
         def predict(self, questions):
             """
@@ -588,7 +591,7 @@ class Experimental:
 
         @property
         def outshape(self):
-            return self.outdim
+            return
 
     class ConvLayer(_VecLayer):
 
@@ -608,15 +611,16 @@ class Experimental:
             self.op = None
 
         def connect(self, to, inshape):
-            from ..ops import Convolution
+            from ..ops import ScipySigConv
 
             _VecLayer.connect(self, to, inshape)
             depth, iy, ix = inshape
-            self.op = Convolution()
+            self.op = ScipySigConv()
             self.inshape = inshape
             self.depth = depth
             self.weights = white(self.nfilters, self.depth, self.fy, self.fx)
             self.biases = np.zeros((self.nfilters,))
+            self.nabla_b = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
             self.inputs = np.copy(X)
@@ -633,16 +637,16 @@ class Experimental:
             error *= self.activation.derivative(self.output)
             iT = self.inputs.transpose(1, 0, 2, 3)
             eT = error.transpose(1, 0, 2, 3)
-            self.nabla_w = self.op(iT, eT)
-            self.nabla_b = error.sum(axis=(0, 2, 3))
-            rW = self.weights[:, :, ::-1, ::-1]
+            self.nabla_w = self.op(iT, eT, mode="valid").transpose(1, 0, 2, 3)
+            # self.nabla_b = error.sum()
+            rW = self.weights[:, :, ::-1, ::-1].transpose(1, 0, 2, 3)
             return self.op(error, rW, "full").reshape(self.inputs.shape)
 
         @property
         def outshape(self):
             oy, ox = tuple(ix - fx + 1 for ix, fx in
                            zip(self.inshape[-2:], (self.fx, self.fy)))
-            return self.nfilters, oy, ox
+            return self.nfilters, ox, oy
 
         def __str__(self):
             return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])

@@ -18,7 +18,7 @@ def get_dense_network(data):
     nw = Network(fanin, name="TestDenseNet")
     nw.add(DenseLayer(30, activation="sigmoid"))
     nw.add(DenseLayer(fanout, activation="sigmoid"))
-    nw.finalize("mse", eta=3.0)
+    nw.finalize("mse", optimizer="sgd")
     return nw
 
 
@@ -28,7 +28,7 @@ def get_drop_net(data):
     nw.add(DenseLayer(30, activation="sigmoid"))
     nw.add(DropOut(0.5))
     nw.add(DenseLayer(fanout, activation="sigmoid"))
-    nw.finalize("mse", eta=3.0)
+    nw.finalize("mse", optimizer="sgd")
     return nw
 
 

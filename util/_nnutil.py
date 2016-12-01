@@ -74,12 +74,20 @@ def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
         return diffs
 
     def analyze_difference_matrices(dvec):
-        from matplotlib import pyplot as plt
         dmats = fold_difference_matrices(dvec)
         for i, d in enumerate(dmats):
             print("Sum of difference matrix no {0}: {1:.4e}".format(i, d.sum()))
-            plt.matshow(np.atleast_2d(np.abs(d)))
-            plt.show()
+            display_matrices(d)
+
+    def display_matrices(mats):
+        from matplotlib import pyplot as plt
+
+        for mat in mats:
+            if mat.ndim > 2:
+                display_matrices(mat)
+            else:
+                plt.matshow(np.atleast_2d(mat))
+                plt.show()
 
     def get_results(er):
         if relative_error < 1e-7:

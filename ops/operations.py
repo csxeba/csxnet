@@ -56,10 +56,9 @@ class Convolution(_OpBase):
     def valid(self, A, F):
         m, c, Xshape = A.shape[0], A.shape[1], A.shape[2:]
         nF, Fc, Fy, Fx = F.shape
-        Fshape = Fy, Fx
         recfield_size = Fx * Fy * Fc
-        oshape = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
-        steps = list(self.calcsteps(Xshape, Fshape))
+        ox, oy = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
+        steps = [(sy, sy+ Fy, sx, sx + Fx) for sx in range(ox) for sy in range(oy)]
         rfields = np.zeros((m, len(steps), Fx*Fy*c))
 
         if Fc != c:
@@ -74,7 +73,7 @@ class Convolution(_OpBase):
                 rfields[i][j] = pic[:, sy:ey, sx:ex].ravel()
 
         output = np.matmul(rfields, F.reshape(recfield_size, nF))
-        output = output.transpose(2, 0, 1).reshape(m, nF, *oshape)
+        output = output.transpose(2, 0, 1).reshape(m, nF, ox, oy)
         return output
 
     def full(self, A, F):
@@ -95,19 +94,11 @@ class Convolution(_OpBase):
         else:
             raise RuntimeError("Unsupported mode:", mode)
 
-    def calcsteps(self, inshape, fshape):
-        xsteps, ysteps = self.outshape(inshape, fshape)
-        fy, fx = fshape
-
-        for sy in range(0, ysteps):
-            for sx in range(0, xsteps):
-                yield sy, sy + fy, sx, sx + fx
-
     def __str__(self):
         return "Convolution"
 
 
-class ScipySigConv:
+class ScipySigConv(_OpBase):
 
     def __init__(self):
         from scipy.signal import correlate
@@ -117,28 +108,72 @@ class ScipySigConv:
         return "scipy.signal.convolution"
 
     def __call__(self, A, F, mode="valid"):
+
+        def do_valid():
+            out = np.zeros((m, nf, 1, ox, oy))
+            for i, pic in enumerate(A):
+                for j, filt in enumerate(F):
+                    conved = self.op(pic, filt, mode=mode)
+                    out[i, j] = conved
+            return out[:, :, 0, :, :]
+
+        def do_full():
+            out = np.zeros((m, nf, ox, oy))
+            for i, pic in enumerate(A):
+                for j, filt in enumerate(F):
+                    for c in range(fc):
+                        out[i, j] += self.op(pic[c], filt[c], mode=mode)
+            return out
+
         m, ic, iy, ix = A.shape
         nf, fc, fy, fx = F.shape
         ox, oy = self.outshape(A.shape, F.shape, mode)
 
         assert ic == fc, "Number of channels got messed up"
 
-        output = np.zeros((m, nf, 1, ox, oy))
-        for i, filt in enumerate(F):
-            for j, batch in enumerate(A):
-                conved = self.op(batch, filt, mode=mode)
-                output[j, i] = conved
-
-        return output[:, :, 0, :, :]
+        return do_valid() if mode == "valid" else do_full()
 
     @staticmethod
-    def outshape(inshape=None, fshape=None, mode="valid"):
+    def outshape(inshape, fshape, mode="valid"):
         if mode == "valid":
             return tuple(ix - fx + 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
         elif mode == "full":
             return tuple(ix + fx - 1 for ix, fx in zip(inshape[-2:], fshape[-2:]))
         else:
             raise RuntimeError("Unsupported mode: " + str(mode))
+
+
+class MaxPool(_OpBase):
+
+    def __str__(self):
+        return "MaxPool"
+
+    def __call__(self, A, fdim):
+        m, ch, iy, ix = A.shape
+        assert all((iy // fdim == 0, ix // fdim == 0))
+        oy, ox = iy // fdim, ix // fdim
+        steps = ((sy, sy + fdim, sx, sx + fdim)
+                 for sx in range(ox)
+                 for sy in range(oy))
+        output = np.zeros((m, ch, oy*ox))
+        filt = np.zeros_like(A)
+        for i, pic in A:
+            for c, sheet in enumerate(pic):
+                for o, (sy, ey, sx, ex) in enumerate(steps):
+                    value = sheet[sy:ey, sx:ex].max()
+                    output[i, c, o] = value
+                    filt[i, c, sy:ey, sx:ex] = np.equal(output[i, c], value)
+        return output.reshape(m, ch, oy, ox), filt
+
+    def outshape(self, inshape, fdim):
+        if len(inshape) == 3:
+            m, iy, ix = inshape
+            return m, iy // fdim, ix // fdim
+        elif len(inshape) == 2:
+            iy, ix = inshape
+            return iy // fdim, ix // fdim
+
+
 
 
 class _ActivationFunctionBase(_OpBase):
