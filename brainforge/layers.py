@@ -497,14 +497,14 @@ class Experimental:
 
         def __init__(self, fdim):
             _VecLayer.__init__(self, activation="linear", trainable=False)
+            from ..ops import MaxPool
             self.fdim = fdim
-            self.dim = 0
             self.filter = None
+            self.op = MaxPool()
 
         def connect(self, to, inshape):
             ic, iy, ix = inshape
-            _VecLayer.connect()
-            self.filter = np.zeros(inshape)
+            _VecLayer.connect(self, to, inshape)
             self.output = np.zeros((ic, iy // self.fdim, ix // self.fdim))
 
         def feedforward(self, questions):
@@ -514,48 +514,8 @@ class Experimental:
             :param questions: numpy.ndarray, a batch of outsize from the previous layer
             :return: numpy.ndarray, max pooled batch
             """
-
-            m, f = questions.shape[:2]
-            result = np.zeros((m * f * len(self.coords),))
-            self.backpass_filter = np.zeros_like(questions)
-
-            index = 0
-            for i in range(m):  # ith lesson of m questions
-                for j in range(f):  # jth filter of f filters (-> depth of input)
-                    sheet = questions[i, j]
-                    for start0, end0, start1, end1 in self.coords:
-                        recfield = sheet[start0:end0, start1:end1]
-                        result[index] = maxpool(recfield)
-                        bpf = np.equal(recfield, result[index]).astype(int)
-                        # A poem about the necessity of the sum(bpf) term
-                        # If the e.g. 2x2 receptive field has multiple elements with the same value,
-                        # e.g. four 0.5s, then the error factor associated with the respective recfield
-                        # gets counted in 4 times, because the backpass filter has 4 1s in it.
-                        # I'll just scale the values back by the sum of 1s in the
-                        # backpass filter, thus averaging them over the maxes in the receptive field.
-                        self.backpass_filter[i, j, start0:end0, start1:end1] = bpf / np.sum(bpf)
-                        index += 1
-
-            self.output = result.reshape([m] + list(self.outshape))
-            return self.output.shape[-3:]
-
-        def predict(self, questions):
-            """
-            This method has no side-effects
-            :param questions:
-            :return:
-            """
-            m, f = questions.shape[:2]
-            result = np.zeros((m * f * len(self.coords),))
-            index = 0
-            for i in range(m):
-                for j in range(f):
-                    sheet = questions[i, j]
-                    for start0, end0, start1, end1 in self.coords:
-                        recfield = sheet[start0:end0, start1:end1]
-                        result[index] = maxpool(recfield)
-                        index += 1
-            return result.reshape([m] + list(self.outshape))
+            self.output, self.filter = self.op.apply(questions, self.fdim)
+            return self.output
 
         def backpropagate(self, error):
             """
@@ -563,35 +523,14 @@ class Experimental:
             :param error:
             :return: numpy.ndarray, the errors of the previous layer
             """
-            deltas = np.zeros([self.brain.m] + list(self.inshape))
-            for l in range(self.brain.m):
-                for z in range(self.inshape[0]):
-                    vec = self.error[l, z]
-                    for i, (start0, end0, start1, end1) in enumerate(self.coords):
-                        bpfilter = self.backpass_filter[l, z, start0:end0, start1:end1]
-                        deltas[l, z, start0:end0, start1:end1] += bpfilter * vec[i]
-
-            prev = self.brain.layers[self.position - 1]
-            return deltas * prev.activation.derivative(prev.output)
-
-        def receive_error(self, error_matrix):
-            """
-            Folds the received error matrix.
-            :param error_matrix: backpropagated errors from the next layer
-            :return: None
-            """
-            self.error = error_matrix.reshape([self.brain.m] + [self.outshape[0]] +
-                                              [np.prod(self.outshape[1:])])
-
-        def weight_update(self):
-            pass
-
-        def shuffle(self):
-            pass
+            return self.op.backward(error, self.filter)
 
         @property
         def outshape(self):
-            return
+            return self.output.shape[-3:]
+
+        def __str__(self):
+            return "MaxPool-{}x{}".format(self.fdim, self.fdim)
 
     class ConvLayer(_VecLayer):
 
@@ -611,11 +550,11 @@ class Experimental:
             self.op = None
 
         def connect(self, to, inshape):
-            from ..ops import ScipySigConv
+            from ..ops import Convolution
 
             _VecLayer.connect(self, to, inshape)
             depth, iy, ix = inshape
-            self.op = ScipySigConv()
+            self.op = Convolution()
             self.inshape = inshape
             self.depth = depth
             self.weights = white(self.nfilters, self.depth, self.fy, self.fx)
@@ -623,8 +562,8 @@ class Experimental:
             self.nabla_b = np.zeros((self.nfilters,))
 
         def feedforward(self, X):
-            self.inputs = np.copy(X)
-            self.output = self.activation(self.op(self.inputs, self.weights, self.mode))
+            self.inputs = X
+            self.output = self.activation(self.op.apply(X, self.weights, self.mode))
             return self.output
 
         def backpropagate(self, error):
@@ -637,10 +576,11 @@ class Experimental:
             error *= self.activation.derivative(self.output)
             iT = self.inputs.transpose(1, 0, 2, 3)
             eT = error.transpose(1, 0, 2, 3)
-            self.nabla_w = self.op(iT, eT, mode="valid").transpose(1, 0, 2, 3)
+            self.nabla_w = self.op.apply(iT, eT, mode="valid").transpose(1, 0, 2, 3)
             # self.nabla_b = error.sum()
-            rW = self.weights[:, :, ::-1, ::-1].transpose(1, 0, 2, 3)
-            return self.op(error, rW, "full").reshape(self.inputs.shape)
+            rW = self.weights[:, :, ::-1, ::-1].transpose(0, 1, 2, 3)
+            backpass = self.op.apply(error, rW, "full")
+            return backpass
 
         @property
         def outshape(self):

@@ -1,25 +1,8 @@
 """Wrappers for vector-operations and other functions"""
-import abc
-
 import numpy as np
 
 
-class _OpBase(abc.ABC):
-
-    @abc.abstractmethod
-    def outshape(self, *args, **kwargs):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def __str__(self):
-        raise NotImplementedError
-
-
-class Flatten(_OpBase):
+class Flatten:
 
     def __init__(self):
         from ..util import rtm
@@ -35,7 +18,7 @@ class Flatten(_OpBase):
         return np.prod(inshape),  # return as tuple!
 
 
-class Reshape(_OpBase):
+class Reshape:
 
     def __init__(self, shape):
         self.shape = shape
@@ -51,40 +34,46 @@ class Reshape(_OpBase):
         return self.shape
 
 
-class Convolution(_OpBase):
+class Convolution:
 
     def valid(self, A, F):
-        m, c, Xshape = A.shape[0], A.shape[1], A.shape[2:]
-        nF, Fc, Fy, Fx = F.shape
-        recfield_size = Fx * Fy * Fc
-        ox, oy = tuple(ix - fx + 1 for ix, fx in zip(Xshape, (Fx, Fy)))
-        steps = [(sy, sy+ Fy, sx, sx + Fx) for sx in range(ox) for sy in range(oy)]
-        rfields = np.zeros((m, len(steps), Fx*Fy*c))
+        im, ic, iy, ix = A.shape
+        nf, fc, fy, fx = F.shape
+        recfield_size = fx * fy * fc
+        oy, ox = (iy - fy) + 1, (ix - fx) + 1
+        rfields = np.zeros((im, recfield_size, ox*oy))
 
-        if Fc != c:
+        raise RuntimeError(
+                """
+                STRIDE = 1 !!!!!!!!!!!!!
+                Reimplement steps!!!!!!!
+                """)
+
+        if fc != ic:
             err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
-            err += "input depth: {} != {} :filter depth".format(c, Fc)
+            err += "input depth: {} != {} :filter depth".format(ic, fc)
             raise ValueError(err)
 
-        # rfields = np.array([[pic[:, sy:ey, sx:ex].ravel() for pic in A]
-        #                     for sx, ex, sy, ey in self.calcsteps(Xshape, Fshape)])
         for i, pic in enumerate(A):
-            for j, (sy, ey, sx, ex) in enumerate(steps):
-                rfields[i][j] = pic[:, sy:ey, sx:ex].ravel()
+            for j, sy, in enumerate(range(0, iy, fy)):
+                for sx in range(0, ix, fx):
+                    rfields[i][j] = pic[:, sy:sy+fy, sx:sx+fx].ravel()
 
-        output = np.matmul(rfields, F.reshape(recfield_size, nF))
-        output = output.transpose(2, 0, 1).reshape(m, nF, ox, oy)
+        output = np.matmul(rfields, F.reshape(recfield_size, nf))
+        output = output.transpose(2, 0, 1).reshape(im, nf, oy, ox)
         return output
 
     def full(self, A, F):
-        fx, fy = F.shape[:2]
-        px, py = fx - 1, fy - 1
-        pA = np.pad(A, pad_width=((0, 0), (0, 0), (px, px), (py, py)),
+        nf, fc, fy, fx = F.shape
+        py, px = fy - 1, fx - 1
+        pA = np.pad(A, pad_width=((0, 0), (0, 0), (py, py), (px, px)),
                     mode="constant", constant_values=0.)
         return self.valid(pA, F)
 
-    def __call__(self, A, F, mode="valid"):
-        return self.valid(A, F) if mode == "valid" else self.full(A, F)
+    def apply(self, A, F, mode="valid"):
+        if mode == "valid":
+            return self.valid(A, F)
+        return self.full(A, F)
 
     def outshape(self, inshape, fshape, mode="valid"):
         if mode == "valid":
@@ -98,18 +87,23 @@ class Convolution(_OpBase):
         return "Convolution"
 
 
-class ScipySigConv(_OpBase):
+class ScipySigConv:
 
     def __init__(self):
-        from scipy.signal import correlate
-        self.op = correlate
+        from scipy.signal import convolve
+        self.op = convolve
 
     def __str__(self):
         return "scipy.signal.convolution"
 
-    def __call__(self, A, F, mode="valid"):
+    def apply(self, A, F, mode="valid"):
+        m, ic, iy, ix = A.shape
+        nf, fc, fy, fx = F.shape
+        ox, oy = self.outshape(A.shape, F.shape, mode)
 
-        def do_valid():
+        assert ic == fc, "Number of channels got messed up"
+
+        if mode == "valid":
             out = np.zeros((m, nf, 1, ox, oy))
             for i, pic in enumerate(A):
                 for j, filt in enumerate(F):
@@ -117,21 +111,12 @@ class ScipySigConv(_OpBase):
                     out[i, j] = conved
             return out[:, :, 0, :, :]
 
-        def do_full():
-            out = np.zeros((m, nf, ox, oy))
-            for i, pic in enumerate(A):
-                for j, filt in enumerate(F):
-                    for c in range(fc):
-                        out[i, j] += self.op(pic[c], filt[c], mode=mode)
-            return out
-
-        m, ic, iy, ix = A.shape
-        nf, fc, fy, fx = F.shape
-        ox, oy = self.outshape(A.shape, F.shape, mode)
-
-        assert ic == fc, "Number of channels got messed up"
-
-        return do_valid() if mode == "valid" else do_full()
+        out = np.zeros((m, nf, ox, oy))
+        for i, pic in enumerate(A):
+            for j, filt in enumerate(F):
+                for c in range(fc):
+                    out[i, j] += self.op(pic[c], filt[c], mode=mode)
+        return out
 
     @staticmethod
     def outshape(inshape, fshape, mode="valid"):
@@ -143,27 +128,40 @@ class ScipySigConv(_OpBase):
             raise RuntimeError("Unsupported mode: " + str(mode))
 
 
-class MaxPool(_OpBase):
+class MaxPool:
+
+    def __init__(self):
+        pass
 
     def __str__(self):
         return "MaxPool"
 
-    def __call__(self, A, fdim):
+    def apply(self, A, fdim):
         m, ch, iy, ix = A.shape
-        assert all((iy // fdim == 0, ix // fdim == 0))
         oy, ox = iy // fdim, ix // fdim
-        steps = ((sy, sy + fdim, sx, sx + fdim)
-                 for sx in range(ox)
-                 for sy in range(oy))
-        output = np.zeros((m, ch, oy*ox))
-        filt = np.zeros_like(A)
-        for i, pic in A:
+        output = np.zeros((m, ch, oy, ox))
+        filt = np.zeros((m, ch, iy, ix))
+        for i, pic in enumerate(A):
             for c, sheet in enumerate(pic):
-                for o, (sy, ey, sx, ex) in enumerate(steps):
-                    value = sheet[sy:ey, sx:ex].max()
-                    output[i, c, o] = value
-                    filt[i, c, sy:ey, sx:ex] = np.equal(output[i, c], value)
-        return output.reshape(m, ch, oy, ox), filt
+                for y, sy in enumerate(range(0, iy, fdim)):
+                    for x, sx in enumerate(range(0, ix, fdim)):
+                        recfield = sheet[sy:sy+fdim, sx:sx+fdim]
+                        value = recfield.max()
+                        output[i, c, y, x] = value
+                        ffield = np.equal(recfield, value)
+                        filt[i, c, sy:sy+fdim, sx:sx+fdim] += ffield
+        return output, filt
+
+    def backward(self, E, filt):
+        em, ec, ey, ex = E.shape
+        fm, fc, fy, fx = filt.shape
+        fdim = fy // ey
+        for m in range(em):
+            for c in range(ec):
+                for i, y in enumerate(range(0, fy, fdim)):
+                    for j, x in enumerate(range(0, fx, fdim)):
+                        filt[m, c, y:y+fdim, x:x+fdim] *= E[m, c, i, j]
+        return filt
 
     def outshape(self, inshape, fdim):
         if len(inshape) == 3:
@@ -174,9 +172,7 @@ class MaxPool(_OpBase):
             return iy // fdim, ix // fdim
 
 
-
-
-class _ActivationFunctionBase(_OpBase):
+class _ActivationFunctionBase:
 
     def __call__(self, Z: np.ndarray): pass
 

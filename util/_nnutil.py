@@ -80,14 +80,14 @@ def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
             display_matrices(d)
 
     def display_matrices(mats):
-        from matplotlib import pyplot as plt
+        from matplotlib import pyplot
 
-        for mat in mats:
-            if mat.ndim > 2:
+        if mats.ndim > 2:
+            for mat in mats:
                 display_matrices(mat)
-            else:
-                plt.matshow(np.atleast_2d(mat))
-                plt.show()
+        else:
+            pyplot.matshow(np.atleast_2d(mats))
+            pyplot.show()
 
     def get_results(er):
         if relative_error < 1e-7:
@@ -117,7 +117,7 @@ def gradient_check(network, X, y, epsilon=1e-5, display=True, verbose=1):
 
     passed = get_results(relative_error)
 
-    if display:
+    if display and not passed:
         analyze_difference_matrices(diff)
 
     return passed
