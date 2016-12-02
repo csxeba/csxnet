@@ -36,18 +36,13 @@ class Reshape:
 
 class Convolution:
 
+    @numba.jit
     def valid(self, A, F):
         im, ic, iy, ix = A.shape
         nf, fc, fy, fx = F.shape
         recfield_size = fx * fy * fc
         oy, ox = (iy - fy) + 1, (ix - fx) + 1
-        rfields = np.zeros((im, recfield_size, ox*oy))
-
-        raise RuntimeError(
-                """
-                STRIDE = 1 !!!!!!!!!!!!!
-                Reimplement steps!!!!!!!
-                """)
+        rfields = np.zeros((im, oy*ox, recfield_size))
 
         if fc != ic:
             err = "Supplied filter (F) is incompatible with supplied input! (X)\n"
@@ -55,12 +50,12 @@ class Convolution:
             raise ValueError(err)
 
         for i, pic in enumerate(A):
-            for j, sy, in enumerate(range(0, iy, fy)):
-                for sx in range(0, ix, fx):
-                    rfields[i][j] = pic[:, sy:sy+fy, sx:sx+fx].ravel()
+            for sy in range(oy):
+                for sx in range(ox):
+                    rfields[i][sy*ox + sx] = pic[:, sy:sy+fy, sx:sx+fx].ravel()
 
-        output = np.matmul(rfields, F.reshape(recfield_size, nf))
-        output = output.transpose(2, 0, 1).reshape(im, nf, oy, ox)
+        output = np.matmul(rfields, F.reshape(nf, recfield_size).T)
+        output = output.transpose(0, 2, 1).reshape(im, nf, oy, ox)
         return output
 
     def full(self, A, F):

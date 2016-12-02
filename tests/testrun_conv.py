@@ -1,5 +1,5 @@
 from csxnet import Network
-from csxnet.brainforge.layers import DenseLayer, Experimental, Flatten
+from csxnet.brainforge.layers import ConvLayer, PoolLayer, DenseLayer, Flatten, Activation
 
 from csxdata import CData, roots
 
@@ -27,19 +27,21 @@ def build_keras_reference(data: CData):
 def build_cnn(data: CData):
     inshape, outshape = data.neurons_required
     net = Network(input_shape=inshape, name="TestBrainforgeCNN")
-    net.add(Experimental.ConvLayer(2, 15, 15, activation="tanh"))
-    net.add(Experimental.PoolLayer(2))
+    net.add(ConvLayer(1, 5, 5))
+    net.add(PoolLayer(3))
+    net.add(Activation("tanh"))
     net.add(Flatten())
     net.add(DenseLayer(outshape, activation="sigmoid", trainable=False))
-    net.finalize("xent")
+    net.finalize("xent", optimizer="adam")
     return net
 
 
 def xperiment():
     mnist = pull_mnist_data()
     net = build_cnn(mnist)
-    net.fit(*mnist.table("learning", m=3000), batch_size=10, epochs=1, verbose=0)
-
+    # net.fit(*mnist.table("learning", m=30), batch_size=10, epochs=1, verbose=0)
+    net.gradient_check(*mnist.table("testing", m=20))
+    net.fit(*mnist.table("learning"), batch_size=30, epochs=10, verbose=1)
 
 if __name__ == '__main__':
     xperiment()
