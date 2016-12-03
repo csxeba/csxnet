@@ -12,12 +12,13 @@ def pull_mnist_data():
 
 def build_keras_reference(data: CData):
     from keras.models import Sequential
-    from keras.layers import Conv2D, Dense, Flatten
+    from keras.layers import Conv2D, Dense, Flatten, MaxPooling2D, Activation
     inshape, outshape = data.neurons_required
     net = Sequential([
-        Conv2D(nb_filter=1, nb_row=3, nb_col=5, activation="tanh",
-               input_shape=inshape),
+        Conv2D(nb_filter=1, nb_row=5, nb_col=5, input_shape=inshape),
+        MaxPooling2D(pool_size=(3, 3)),
         Flatten(),
+        Activation("tanh"),
         Dense(outshape[0], activation="sigmoid")
     ])
     net.compile(optimizer="adam", loss="categorical_crossentropy", metrics=["acc"])
@@ -36,6 +37,13 @@ def build_cnn(data: CData):
     return net
 
 
+def keras_run():
+    mnist = pull_mnist_data()
+    net = build_keras_reference(mnist)
+    net.fit(*mnist.table("learning"), batch_size=30, nb_epoch=10,
+            validation_data=mnist.table("testing"))
+
+
 def xperiment():
     mnist = pull_mnist_data()
     net = build_cnn(mnist)
@@ -44,4 +52,4 @@ def xperiment():
     net.fit(*mnist.table("learning"), batch_size=30, epochs=10, verbose=1)
 
 if __name__ == '__main__':
-    xperiment()
+    keras_run()

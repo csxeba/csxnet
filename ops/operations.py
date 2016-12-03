@@ -36,7 +36,6 @@ class Reshape:
 
 class Convolution:
 
-    @numba.jit
     def valid(self, A, F):
         im, ic, iy, ix = A.shape
         nf, fc, fy, fx = F.shape
