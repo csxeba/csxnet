@@ -2,7 +2,7 @@ import abc
 
 import numpy as np
 
-from ..util import white, white_like
+from ..util import white, white_like, rtm
 from ..ops import sigmoid
 
 
@@ -10,7 +10,7 @@ class _Layer(abc.ABC):
     """Abstract base class for all layer type classes"""
     def __init__(self, activation, **kw):
 
-        from ..ops import act_fns as activations
+        from ..ops import act_fns
 
         self.brain = None
         self.inputs = None
@@ -27,7 +27,7 @@ class _Layer(abc.ABC):
         self.optimizer = None
 
         if isinstance(activation, str):
-            self.activation = activations[activation]
+            self.activation = act_fns[activation]
         else:
             self.activation = activation
 
@@ -197,7 +197,6 @@ class Activation(_Layer):
         return str(self.activation)
 
 
-
 class InputLayer(_Layer):
 
     def __init__(self, shape):
@@ -284,6 +283,112 @@ class DenseLayer(_FFLayer):
 
     def __str__(self):
         return "{}-Dense-{}".format(self.neurons, str(self.activation)[:5])
+
+
+class HighwayLayer(_FFLayer):
+    """
+    Neural Highway Layer
+
+    Based on Srivastava et al., 2015
+
+    A carry gate is applied to the raw input.
+    A transform gate is applied to the output activation.
+    y = y_ * g_t + x * g_c
+    Output shape equals the input shape.
+    """
+
+    def __init__(self, activation="tanh", **kw):
+        _FFLayer.__init__(self, 1, activation, **kw)
+        self.gates = None
+
+    def connect(self, to, inshape):
+        self.neurons = int(np.prod(inshape))
+        self.weights = white(self.neurons, self.neurons*3)
+        self.biases = np.zeros((self.neurons*3,))
+        _FFLayer.connect(self, to, inshape)
+
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
+        self.inputs = rtm(stimuli)
+        self.gates = self.inputs.dot(self.weights) + self.biases
+        self.gates[:, :self.neurons] = self.activation(self.gates[:, :self.neurons])
+        self.gates[:, self.neurons:] = sigmoid(self.gates[:, self.neurons:])
+        h, t, c = np.split(self.gates, 3, axis=1)
+        self.output = h * t + self.inputs * c
+        return self.output.reshape(stimuli.shape)
+
+    def backpropagate(self, error) -> np.ndarray:
+        shape = error.shape
+        error = rtm(error)
+
+        h, t, c = np.split(self.gates, 3, axis=1)
+
+        dh = self.activation.derivative(h) * t * error
+        dt = sigmoid.derivative(t) * h * error
+        dc = sigmoid.derivative(c) * self.inputs * error
+        dx = c * error
+
+        dgates = np.concatenate((dh, dt, dc), axis=1)
+        self.nabla_w = self.inputs.T.dot(dgates)
+        self.nabla_b = dgates.sum(axis=0)
+
+        return (dgates.dot(self.weights.T) + dx).reshape(shape)
+
+    def __str__(self):
+        return "Highway-{}".format(str(self.activation))
+
+
+class HighwayAlt(_FFLayer):
+    """
+    Neural Highway Layer
+
+    Based on Srivastava et al., 2015
+
+    A carry gate is applied to the raw input.
+    A transform gate is applied to the output activation.
+    The carry gate is 1 minus the transfer gate.
+    y = y_ * g_t + x * (1 - g_t)
+    Output shape equals the input shape.
+    """
+
+    def __init__(self, activation="tanh", **kw):
+        _FFLayer.__init__(self, 1, activation, **kw)
+        self.gates = None
+
+    def connect(self, to, inshape):
+        self.neurons = int(np.prod(inshape))
+        self.weights = white(self.neurons, self.neurons*2)
+        self.biases = np.zeros((self.neurons*2,))
+        _FFLayer.connect(self, to, inshape)
+
+    def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
+        self.inputs = rtm(stimuli)
+        self.gates = self.inputs.dot(self.weights) + self.biases
+        self.gates[:, :self.neurons] = self.activation(self.gates[:, :self.neurons])
+        self.gates[:, self.neurons:] = sigmoid(self.gates[:, self.neurons:])
+        h, t = np.split(self.gates, 2, axis=1)
+        self.output = h * t + self.inputs * (1. - t)
+        return self.output.reshape(stimuli.shape)
+
+    def backpropagate(self, error) -> np.ndarray:
+        shape = error.shape
+        error = rtm(error)
+
+        h, t = np.split(self.gates, 2, axis=1)
+
+        dh = self.activation.derivative(h) * t * error
+        # dt = sigmoid.derivative(t) * h * error
+        # dc = sigmoid.derivative(c) * self.inputs * error
+        dt = sigmoid.derivative(t) * (h - self.inputs) * error
+        dx = (1. - t) * error
+
+        dgates = np.concatenate((dh, dt), axis=1)
+        self.nabla_w = self.inputs.T.dot(dgates)
+        self.nabla_b = dgates.sum(axis=0)
+
+        return (dgates.dot(self.weights.T) + dx).reshape(shape)
+
+    def __str__(self):
+        return "Highway-{}".format(str(self.activation))
 
 
 class Flatten(_Op):
