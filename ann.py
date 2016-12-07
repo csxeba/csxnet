@@ -138,7 +138,7 @@ class Network:
                 done = ((bno * batch_size) + self.m) / self.N
                 print("\rDone: {0:>6.1%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
 
-        if verbose:
+        if verbose and validation and None not in validation:
             print_progress()
             print()
         self.age += 1
@@ -257,3 +257,67 @@ class Network:
     @property
     def nparams(self):
         return sum(layer.nparams for layer in self.layers if layer.trainable)
+
+
+class Autoencoder(Network):
+
+    def __init__(self, inshape=(), name=""):
+        Network.__init__(self, inshape, name)
+        self.encoder_end = 1
+        self.decoder = []
+
+    def add(self, layer, input_dim=()):
+        Network.add(self, layer, input_dim)
+        self.encoder_end += 1
+
+    def pop(self):
+        self.layers = self.layers[:self.encoder_end-1]
+        self.encoder_end -= 1
+        self._finalized = False
+
+    def finalize(self, cost, optimizer="sgd"):
+        from .util import cost_fns as costs
+        from .brainforge.optimizers import optimizer as opt
+        from .brainforge.layers import DenseLayer
+
+        for layer in (type(l)(l.neurons, str(l.activation), trainable=l.trainable)
+                      for l in reversed(self.layers[1:])):
+            layer.connect(self, self.layers[-1].outshape)
+            self.layers.append(layer)
+            self.architecture.append(str(layer))
+        self.layers.append(DenseLayer(self.layers[0].neurons))
+        self.layers[-1].connect(self, self.layers[-2].outshape)
+        self.architecture.append(str(self.layers[-1]))
+        for layer in self.layers:
+            if layer.trainable:
+                if isinstance(optimizer, str):
+                    optimizer = opt[optimizer](layer)
+                layer.optimizer = optimizer
+        self.cost = costs[cost] if isinstance(cost, str) else cost
+        self._finalized = True
+
+    def encode(self, X):
+        for layer in self.layers[:self.encoder_end]:
+            X = layer.feedforward(X)
+        return X
+
+    def decode(self, X):
+        for layer in self.layers[self.encoder_end:]:
+            X = layer.feedforward(X)
+        return X
+
+    # noinspection PyMethodOverriding
+    def fit(self, X, batch_size=20, epochs=10, monitor=(), validation=(), verbose=1, shuffle=True):
+        Network.fit(self, X, X, batch_size, epochs, monitor, validation, verbose, shuffle)
+
+    def fit_csxdata(self, frame, batch_size=20, epochs=10, monitor=(), verbose=1, shuffle=True):
+        X, _ = frame.table("learning")
+        if frame.n_testing:
+            vX, _ = frame.table("testing")
+        else:
+            vX = None
+        Network.fit(self, X, X, batch_size, epochs, monitor, (vX, vX), verbose, shuffle)
+
+    # noinspection PyMethodOverriding
+    def gradient_check(self, X, verbose=1, epsilon=1e-5):
+        return Network.gradient_check(self, X, X, verbose, epsilon)
