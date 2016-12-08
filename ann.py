@@ -31,11 +31,8 @@ class Network:
         self.layers = []
         self.architecture = []
         self.age = 0
-        self.optimizer = None
         self.cost = None
-        self.lmbd1 = 0.0
-        self.lmbd2 = 0.0
-        self.mu = 0.0
+        self.optimizer = None
 
         self.N = 0  # X's size goes here
         self.m = 0  # Batch size goes here
@@ -43,17 +40,71 @@ class Network:
 
         self._add_input_layer(input_shape)
 
+    def encapsulate(self, dumppath=None):
+        capsule = {
+            "name": self.name,
+            "cost": self.cost,
+            "optimizer": self.optimizer,
+            "architecture": self.architecture[:],
+            "layers": [layer.capsule() for layer in self.layers]}
+
+        if dumppath is None:
+            return capsule
+        else:
+            import pickle
+            with open(dumppath, "wb") as outfl:
+                pickle.dump(capsule, outfl)
+                outfl.close()
+
+    @classmethod
+    def from_capsule(cls, capsule):
+
+        def prepare_capsule(caps):
+            if isinstance(caps, str):
+                import pickle
+                infl = open(caps, "rb")
+                caps = pickle.load(infl)
+                infl.close()
+            return caps
+
+        from .util.shame import translate_architecture as trsl
+        from .brainforge.optimizers import optimizer as opts
+
+        c = prepare_capsule(capsule)
+
+        net = Network(input_shape=c["layers"][0][0], name=c["name"])
+
+        for layer_name, layer_capsule in zip(c["architecture"], c["layers"]):
+            if layer_name[:5] == "Input":
+                continue
+            layer_cls = trsl(layer_name)
+            layer = layer_cls.from_capsule(layer_capsule)
+            net.add(layer)
+
+        opti = c["optimizer"]
+        if isinstance(opti, str):
+            opti = opts[opti]()
+        net.finalize(cost=c["cost"], optimizer=opti)
+
+        for layer, lcaps in zip(net.layers, c["layers"]):
+            if layer.weights is not None:
+                layer.set_weights(lcaps[-1], fold=False)
+
+        return net
+
     # ---- Methods for architecture building ----
 
-    def _add_input_layer(self, inshape):
-        if not inshape:
-            raise RuntimeError("Parameter input_dim must be supplied for the first layer!")
-        if isinstance(inshape, int):
-            inshape = (inshape,)
+    def _add_input_layer(self, input_shape):
+        if not input_shape:
+            raise RuntimeError("Parameter input_shape must be supplied for the first layer!")
+        if isinstance(input_shape, int):
+            input_shape = (input_shape,)
         from .brainforge.layers import InputLayer
-        self.layers.append(InputLayer(inshape))
-        self.layers[-1].connect(to=self, inshape=inshape)
-        self.layers[-1].connected = True
+        inl = InputLayer(input_shape)
+        inl.connect(to=self, inshape=input_shape)
+        inl.connected = True
+        self.layers.append(inl)
+        self.architecture.append(str(inl))
 
     def add(self, layer, input_dim=()):
         if len(self.layers) == 0:
@@ -188,14 +239,6 @@ class Network:
 
     # ---- Some utilities ----
 
-    def save(self, path):
-        import pickle
-
-        fl = open(path, mode="wb")
-        print("Saving brain object to", path)
-        pickle.dump(self, fl)
-        fl.close()
-
     def shuffle(self):
         for layer in self.layers:
             if layer.trainable:
@@ -280,8 +323,8 @@ class Autoencoder(Network):
         from .brainforge.optimizers import optimizer as opt
         from .brainforge.layers import DenseLayer
 
-        for layer in (type(l)(l.neurons, str(l.activation), trainable=l.trainable)
-                      for l in reversed(self.layers[1:])):
+        for layer in reversed(self.layers[1:]):
+            decoder_layer = type(layer)
             layer.connect(self, self.layers[-1].outshape)
             self.layers.append(layer)
             self.architecture.append(str(layer))

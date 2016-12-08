@@ -71,6 +71,14 @@ class _Layer(abc.ABC):
     def nparams(self):
         return self.weights.size + self.biases.size
 
+    def capsule(self):
+        return [self.inshape, self.trainable]
+
+    @classmethod
+    @abc.abstractmethod
+    def from_capsule(cls, capsule):
+        raise NotImplementedError
+
     @property
     @abc.abstractmethod
     def outshape(self): raise NotImplementedError
@@ -135,6 +143,14 @@ class _Recurrent(_FFLayer):
             error_tensor[-1] = error
             return error_tensor
 
+    def capsule(self):
+        return _FFLayer.capsule(self) + [self.neurons, self.activation, self.return_seq,
+                                         self.get_weights(unfold=False)]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(neurons=capsule[2], activation=capsule[3], return_seq=capsule[4])
+
     @property
     def outshape(self):
         if self.return_seq:
@@ -150,18 +166,15 @@ class _Op(_Layer):
         self.opf = None
         self.opb = None
 
+    def connect(self, to, inshape):
+        _Layer.connect(self, to, inshape)
+
     def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
         self.output = self.opf(stimuli)
         return self.output
 
-    def connect(self, to, inshape):
-        _Layer.connect(self, to, inshape)
-
     def backpropagate(self, error) -> np.ndarray:
         return self.opb(error)
-
-    def __str__(self):
-        return str(self.opf)
 
     def get_weights(self, unfold=True):
         return NotImplemented
@@ -172,9 +185,19 @@ class _Op(_Layer):
     def shuffle(self) -> None:
         return NotImplemented
 
+    def capsule(self):
+        return [self.inshape]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls()
+
     @property
     def outshape(self):
         return self.opf.outshape(self.inshape)
+
+    def __str__(self):
+        return str(self.opf)
 
 
 class Activation(_Layer):
@@ -193,8 +216,15 @@ class Activation(_Layer):
     def outshape(self):
         return self.inshape
 
+    def capsule(self):
+        return _Layer.capsule(self) + [self.activation]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(activation=capsule[-1])
+
     def __str__(self):
-        return str(self.activation)
+        return "Activation-{}".format(str(self.activation))
 
 
 class InputLayer(_Layer):
@@ -227,12 +257,19 @@ class InputLayer(_Layer):
     def set_weights(self, w, fold=True):
         pass
 
+    def capsule(self):
+        return [self.inshape]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(shape=capsule[0])
+
     @property
     def outshape(self):
         return self.neurons if isinstance(self.neurons, tuple) else (self.neurons,)
 
     def __str__(self):
-        return str(self.neurons)
+        return "Input-{}".format(self.neurons)
 
 
 class DenseLayer(_FFLayer):
@@ -281,8 +318,15 @@ class DenseLayer(_FFLayer):
         self.nabla_b = np.sum(error, axis=0)
         return np.dot(error, self.weights.T)
 
+    def capsule(self):
+        return _FFLayer.capsule(self) + [self.activation, self.get_weights(unfold=False)]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(neurons=capsule[-1][0].shape[1], activation=capsule[-2], trainable=capsule[1])
+
     def __str__(self):
-        return "{}-Dense-{}".format(self.neurons, str(self.activation)[:5])
+        return "Dense-{}-{}".format(self.neurons, str(self.activation)[:5])
 
 
 class HighwayLayer(_FFLayer):
@@ -333,59 +377,16 @@ class HighwayLayer(_FFLayer):
 
         return (dgates.dot(self.weights.T) + dx).reshape(shape)
 
-    def __str__(self):
-        return "Highway-{}".format(str(self.activation))
+    def capsule(self):
+        return _FFLayer.capsule(self) + [self.activation, self.get_weights(unfold=False)]
 
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(activation=capsule[-2])
 
-class HighwayAlt(_FFLayer):
-    """
-    Neural Highway Layer
-
-    Based on Srivastava et al., 2015
-
-    A carry gate is applied to the raw input.
-    A transform gate is applied to the output activation.
-    The carry gate is 1 minus the transfer gate.
-    y = y_ * g_t + x * (1 - g_t)
-    Output shape equals the input shape.
-    """
-
-    def __init__(self, activation="tanh", **kw):
-        _FFLayer.__init__(self, 1, activation, **kw)
-        self.gates = None
-
-    def connect(self, to, inshape):
-        self.neurons = int(np.prod(inshape))
-        self.weights = white(self.neurons, self.neurons*2)
-        self.biases = np.zeros((self.neurons*2,))
-        _FFLayer.connect(self, to, inshape)
-
-    def feedforward(self, stimuli: np.ndarray) -> np.ndarray:
-        self.inputs = rtm(stimuli)
-        self.gates = self.inputs.dot(self.weights) + self.biases
-        self.gates[:, :self.neurons] = self.activation(self.gates[:, :self.neurons])
-        self.gates[:, self.neurons:] = sigmoid(self.gates[:, self.neurons:])
-        h, t = np.split(self.gates, 2, axis=1)
-        self.output = h * t + self.inputs * (1. - t)
-        return self.output.reshape(stimuli.shape)
-
-    def backpropagate(self, error) -> np.ndarray:
-        shape = error.shape
-        error = rtm(error)
-
-        h, t = np.split(self.gates, 2, axis=1)
-
-        dh = self.activation.derivative(h) * t * error
-        # dt = sigmoid.derivative(t) * h * error
-        # dc = sigmoid.derivative(c) * self.inputs * error
-        dt = sigmoid.derivative(t) * (h - self.inputs) * error
-        dx = (1. - t) * error
-
-        dgates = np.concatenate((dh, dt), axis=1)
-        self.nabla_w = self.inputs.T.dot(dgates)
-        self.nabla_b = dgates.sum(axis=0)
-
-        return (dgates.dot(self.weights.T) + dx).reshape(shape)
+    @property
+    def outshape(self):
+        return self.inshape
 
     def __str__(self):
         return "Highway-{}".format(str(self.activation))
@@ -427,7 +428,9 @@ class DropOut(_Layer):
         return self.output
 
     def backpropagate(self, error):
-        return error * self.mask
+        output = error * self.mask
+        self.mask = np.ones_like(self.mask) * self.dropchance
+        return output
 
     def get_weights(self, unfold=True): raise NotImplementedError
 
@@ -439,8 +442,15 @@ class DropOut(_Layer):
     def outshape(self):
         return self.neurons
 
+    def capsule(self):
+        return _Layer.capsule(self) + [self.dropchance]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(dropchance=capsule[-1])
+
     def __str__(self):
-        return "{}-DropOut({})".format(self.neurons, self.dropchance)
+        return "DropOut({})".format(self.dropchance)
 
 
 class RLayer(_Recurrent):
@@ -505,7 +515,7 @@ class RLayer(_Recurrent):
         return deltaX.transpose(1, 0, 2)
 
     def __str__(self):
-        return "{}-RLayer-{}".format(self.neurons, str(self.activation))
+        return "RLayer-{}-{}".format(self.neurons, str(self.activation))
 
 
 class LSTM(_Recurrent):
@@ -595,7 +605,7 @@ class LSTM(_Recurrent):
         return deltaX.transpose(1, 0, 2)
 
     def __str__(self):
-        return "{}-LSTM-{}".format(self.neurons, str(self.activation)[:4])
+        return "LSTM-{}-{}".format(self.neurons, str(self.activation)[:4])
 
 
 class EchoLayer(RLayer):
@@ -612,7 +622,7 @@ class EchoLayer(RLayer):
         self.biases = white_like(self.biases)
 
     def __str__(self):
-        return "{}-Echo-{}".format(self.neurons, str(self.activation)[:4])
+        return "Echo-{}-{}".format(self.neurons, str(self.activation)[:4])
 
 
 class PoolLayer(_VecLayer):
@@ -650,6 +660,13 @@ class PoolLayer(_VecLayer):
     @property
     def outshape(self):
         return self.output.shape[-3:]
+
+    def capsule(self):
+        return _VecLayer.capsule(self) + [self.fdim]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        return cls(fdim=capsule[-1])
 
     def __str__(self):
         return "MaxPool-{}x{}".format(self.fdim, self.fdim)
@@ -710,6 +727,14 @@ class ConvLayer(_VecLayer):
         oy, ox = tuple(ix - fx + 1 for ix, fx in
                        zip(self.inshape[-2:], (self.fx, self.fy)))
         return self.nfilters, ox, oy
+
+    def capsule(self):
+        return _VecLayer.capsule(self) + [self.mode, self.activation, self.get_weights(unfold=False)]
+
+    @classmethod
+    def from_capsule(cls, capsule):
+        nF, depth, fx, fy = capsule[-1][0].shape
+        return cls(nF, fx, fy, activation=capsule[-2], mode=capsule[-3], trainable=capsule[1])
 
     def __str__(self):
         return "Conv({}x{}x{})-{}".format(self.nfilters, self.fx, self.fy, str(self.activation)[:4])
