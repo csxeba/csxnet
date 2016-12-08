@@ -17,271 +17,242 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 """
 
-import abc
+import warnings
 
 import numpy as np
 
-from csxdata.utilities.misc import niceround
 
-from .brainforge.layers import InputLayer
-from .util import act_fns, cost_fns
+class Network:
 
-
-class NeuralNetworkBase(abc.ABC):
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, name: str):
+    def __init__(self, input_shape=(), name=""):
         # Referencing the data wrapper on which we do the learning
-        self.data = data
-        self.fanin, self.outsize = data.neurons_required
-
         self.name = name
-        self.N = data.N
-
-        # Parameters required for SGD
-        self.eta = eta
-        self.lmbd1 = lmbd1
-        self.lmbd2 = lmbd2
-        self.mu = mu
-
         # Containers and self-describing variables
         self.layers = []
         self.architecture = []
         self.age = 0
-        self.name = ""
+        self.cost = None
+        self.optimizer = None
 
-    @abc.abstractmethod
-    def fit(self, batch_size, epochs): raise NotImplementedError
-
-    @abc.abstractmethod
-    def _epoch(self, batch_size: int): raise NotImplementedError
-
-    @abc.abstractmethod
-    def evaluate(self, on: str): raise NotImplementedError
-
-    @abc.abstractmethod
-    def predict(self, questions: np.ndarray): raise NotImplementedError
-
-    @abc.abstractmethod
-    def describe(self): raise NotImplementedError
-
-
-class Network(NeuralNetworkBase):
-
-    def __init__(self, data, eta: float, lmbd1: float, lmbd2, mu: float, cost, name=""):
-
-        NeuralNetworkBase.__init__(self, data, eta, lmbd1, lmbd2, mu, name)
-
+        self.N = 0  # X's size goes here
         self.m = 0  # Batch size goes here
+        self._finalized = False
 
-        if isinstance(cost, str):
-            self.cost = cost_fns[cost]
+        self._add_input_layer(input_shape)
+
+    def encapsulate(self, dumppath=None):
+        capsule = {
+            "name": self.name,
+            "cost": self.cost,
+            "optimizer": self.optimizer,
+            "architecture": self.architecture[:],
+            "layers": [layer.capsule() for layer in self.layers]}
+
+        if dumppath is None:
+            return capsule
         else:
-            self.cost = cost
+            import pickle
+            with open(dumppath, "wb") as outfl:
+                pickle.dump(capsule, outfl)
+                outfl.close()
 
-        self.layers.append(InputLayer(brain=self, inshape=self.fanin))
-        self.architecture.append("In: {}".format(self.fanin))
-        self.predictor = None
-        self.encoder = None
+    @classmethod
+    def from_capsule(cls, capsule):
 
-        self.finalized = False
+        def prepare_capsule(caps):
+            if isinstance(caps, str):
+                import pickle
+                infl = open(caps, "rb")
+                caps = pickle.load(infl)
+                infl.close()
+            return caps
+
+        from .util.shame import translate_architecture as trsl
+        from .brainforge.optimizers import optimizer as opts
+
+        c = prepare_capsule(capsule)
+
+        net = Network(input_shape=c["layers"][0][0], name=c["name"])
+
+        for layer_name, layer_capsule in zip(c["architecture"], c["layers"]):
+            if layer_name[:5] == "Input":
+                continue
+            layer_cls = trsl(layer_name)
+            layer = layer_cls.from_capsule(layer_capsule)
+            net.add(layer)
+
+        opti = c["optimizer"]
+        if isinstance(opti, str):
+            opti = opts[opti]()
+        net.finalize(cost=c["cost"], optimizer=opti)
+
+        for layer, lcaps in zip(net.layers, c["layers"]):
+            if layer.weights is not None:
+                layer.set_weights(lcaps[-1], fold=False)
+
+        return net
 
     # ---- Methods for architecture building ----
 
-    def add_conv(self, fshape=(3, 3), n_filters=1, stride=1, activation=act_fns.tanh):
-        from .brainforge.layers import Experimental
-        fshape = [self.fanin[0]] + list(fshape)
-        args = (self, fshape, self.layers[-1].outshape, n_filters, stride, len(self.layers), activation)
-        self.layers.append(Experimental.ConvLayer(*args))
-        self.architecture.append("{}x{}x{} Conv: {}".format(fshape[0], fshape[1], n_filters, str(activation)[:4]))
-        # brain, fshape, fanin, num_filters, stride, position, activation="sigmoid"
+    def _add_input_layer(self, input_shape):
+        if not input_shape:
+            raise RuntimeError("Parameter input_shape must be supplied for the first layer!")
+        if isinstance(input_shape, int):
+            input_shape = (input_shape,)
+        from .brainforge.layers import InputLayer
+        inl = InputLayer(input_shape)
+        inl.connect(to=self, inshape=input_shape)
+        inl.connected = True
+        self.layers.append(inl)
+        self.architecture.append(str(inl))
 
-    def add_pool(self, pool=2):
-        from .brainforge.layers import Experimental
-        args = (self, self.layers[-1].outshape, (pool, pool), pool, len(self.layers))
-        self.layers.append(Experimental.PoolLayer(*args))
-        self.architecture.append("{} Pool".format(pool))
-        # brain, fanin, fshape, stride, position
+    def add(self, layer, input_dim=()):
+        if len(self.layers) == 0:
+            self._add_input_layer(input_dim)
+            self.architecture.append(str(self.layers[-1]))
 
-    def add_fc(self, neurons, activation="tanh"):
-        from .brainforge.layers import DenseLayer
-        inpts = np.prod(self.layers[-1].outshape)
-        args = (self, inpts, neurons, len(self.layers), activation)
-        self.layers.append(DenseLayer(*args))
-        self.architecture.append("{} Dense: {}".format(neurons, str(activation)[:4]))
-        # brain, inputs, neurons, position, activation
+        layer.connect(self, self.layers[-1].outshape)
+        self.layers.append(layer)
+        self.architecture.append(str(layer))
+        layer.connected = True
 
-    def add_drop(self, neurons, dropchance=0.25, activation="tanh"):
-        from .brainforge.layers import DropOut
-        args = (self, np.prod(self.layers[-1].outshape), neurons, dropchance, len(self.layers), activation)
-        self.layers.append(DropOut(*args))
-        self.architecture.append("{} Drop({}): {}".format(neurons, round(dropchance, 2), str(activation)[:4]))
-        # brain, inputs, neurons, dropout, position, activation
+    def finalize(self, cost, optimizer="sgd"):
+        from .util import cost_fns as costs
+        from .brainforge.optimizers import optimizer as opt
 
-    def add_rec(self, neurons, activation="tanh", return_seq=False, echo=False, p=0.0):
-        inpts = self.layers[-1].outshape[-1]
-        args = [self, inpts, neurons, len(self.layers), activation, return_seq]
-        if not echo:
-            from .brainforge.layers import RLayer
-            self.layers.append(RLayer(*args))
-            self.architecture.append("{} RecL: {}".format(neurons, activation[:4]))
-            # brain, inputs, neurons, time_truncate, position, activation
-        else:
-            from .brainforge.layers import EchoLayer
-            self.layers.append(EchoLayer(*(args + [p])))
-            self.architecture.append("{} Echo({}): {}".format(neurons, p, activation[:4]))
-            # brain, inputs, neurons, time_truncate, position, activation
-
-    def finalize_architecture(self, activation="sigmoid"):
-        from .brainforge.layers import DenseLayer
-        if self.finalized:
-            self.pop()
-        pargs = (self, np.prod(self.layers[-1].outshape), self.outsize, len(self.layers), activation)
-        self.predictor = DenseLayer(*pargs)
-        self.layers.append(self.predictor)
-        self.architecture.append("{} Dense: {}".format(self.outsize, str(activation)[:4]))
-        self.finalized = True
+        for layer in self.layers:
+            if layer.trainable:
+                if isinstance(optimizer, str):
+                    optimizer = opt[optimizer](layer)
+                layer.optimizer = optimizer
+        self.cost = costs[cost] if isinstance(cost, str) else cost
+        self._finalized = True
 
     def pop(self):
         self.layers.pop()
         self.architecture.pop()
-        self.finalized = False
+        self._finalized = False
 
     # ---- Methods for model fitting ----
 
-    def fit(self, batch_size=20, epochs=10, verbose=1, monitor=()):
+    def fit(self, X, Y, batch_size=20, epochs=10, monitor=(), validation=(), verbose=1, shuffle=True):
 
-        if not self.finalized:
+        if not self._finalized:
             raise RuntimeError("Architecture not finalized!")
 
+        self.N = X.shape[0]
+
         for epoch in range(1, epochs+1):
+            if shuffle:
+                arg = np.arange(X.shape[0])
+                np.random.shuffle(arg)
+                X, Y = X[arg], Y[arg]
             if verbose:
                 print("Epoch {}/{}".format(epoch, epochs))
-            self._epoch(batch_size, verbose, monitor)
+            self.epoch(X, Y, batch_size, monitor, validation, verbose)
 
-    def _epoch(self, batch_size=20, verbose=1, monitor=()):
+    def fit_csxdata(self, frame, batch_size=20, epochs=10, monitor=(), verbose=1, shuffle=True):
+        fanin, outshape = frame.neurons_required
+        if fanin != self.layers[0].outshape or outshape != self.layers[-1].outshape:
+            errstring = "Network configuration incompatible with supplied dataframe!\n"
+            errstring += "fanin: {} <-> InputLayer: {}\n".format(fanin, self.layers[0].outshape)
+            errstring += "outshape: {} <-> Net outshape: {}\n".format(outshape, self.layers[-1].outshape)
+            raise RuntimeError(errstring)
+
+        X, Y = frame.table("learning")
+        validation = frame.table("testing")
+
+        self.fit(X, Y, batch_size, epochs, monitor, validation, verbose, shuffle)
+
+    def epoch(self, X, Y, batch_size, monitor, validation, verbose):
 
         def print_progress():
-            tcost, tacc = self.evaluate("testing")
-            print("testing cost: {0:.5f};\taccuracy: {1:.2%}".format(tcost, tacc), end="")
+            classificaton = "acc" in monitor
+            results = self.evaluate(*validation, classify=classificaton)
+
+            chain = "testing cost: {0:.5f}"
+            if classificaton:
+                tcost, tacc = results
+                accchain = "\taccuracy: {0:.2%}".format(tacc)
+            else:
+                tcost = results[0]
+                accchain = ""
+            print(chain.format(tcost) + accchain, end="")
 
         costs = []
-        for bno, (inputs, targets) in enumerate(self.data.batchgen(batch_size), start=1):
+        batches = ((X[start:start+batch_size], Y[start:start+batch_size])
+                   for start in range(0, self.N, batch_size))
+
+        for bno, (inputs, targets) in enumerate(batches):
             costs.append(self._fit_batch(inputs, targets))
             if verbose:
-                done = (bno * batch_size) / self.N
-                print("\rDone: {0:>7.2%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
-        if "acc" in monitor:
+                done = ((bno * batch_size) + self.m) / self.N
+                print("\rDone: {0:>6.1%} Cost: {1: .5f}\t ".format(done, np.mean(costs)), end="")
+
+        if verbose and validation and None not in validation:
             print_progress()
-        print()
+            print()
+        self.age += 1
         return costs
 
-    def _fit_batch(self, X, y):
-        """
-        This method coordinates the fitting of parameters (learning and encoding).
+    def _fit_batch(self, X, Y, parameter_update=True):
+        self.prediction(X)
+        self.backpropagation(Y)
+        if parameter_update:
+            self._parameter_update()
 
-        Backprop and weight update is implemented layer-wise and
-        could be somewhat parallelized.
-        Backpropagation is done a bit unorthodoxically. Each
-        layer computes the error of the previous layer and the
-        backprop methods return with the computed error array
+        return self.cost(self.output, Y) / self.m
 
-        :param X: NumPy array of stimuli
-        :param y: NumPy array of (embedded) targets
-        :return: cost calculated on the current batch
-        """
-
-        self.m = X.shape[0]
-
-        self._forward_pass(X)
-        self._backward_pass(y)
-        self._parameter_update()
-
-        endcost = self.cost(self.output, y) / self.m
-        return endcost
-
-    def _forward_pass(self, X):
-        self.m = X.shape[0]
-        for layer in self.layers:
-            X = layer.feedforward(X)
-
-    def _backward_pass(self, y):
-        self.layers[-1].receive_error(self.cost.derivative(self.layers[-1].output, y))
-        for layer, prev_layer in zip(self.layers[-1:0:-1], self.layers[-2::-1]):
-            prev_layer.receive_error(layer.backpropagation())
+    def backpropagation(self, Y):
+        error = self.cost.derivative(self.layers[-1].output, Y)
+        for layer in self.layers[-1:0:-1]:
+            error = layer.backpropagate(error)
 
     def _parameter_update(self):
-        for layer in self.layers[-1:0:-1]:
-            layer.weight_update()
+        for layer in filter(lambda x: x.trainable, self.layers):
+            layer.optimizer(self.m)
 
     # ---- Methods for forward propagation ----
 
-    def predict(self, X):
-        if self.data.type == "classification":
-            return self.predict_class(X)
-        elif self.data.type == "regression":
-            return self.predict_raw(X)
-        elif self.data.type == "sequence":
-            return self.predict_raw(X)
-        else:
-            raise TypeError("Unsupported Dataframe Type")
+    def regress(self, X):
+        return self.prediction(X)
 
-    def predict_class(self, X):
-        """
-        Coordinates prediction (feedforwarding outside the learning phase)
+    def classify(self, X):
+        return np.argmax(self.prediction(X), axis=1)
 
-        :param X: numpy.ndarray representing a batch of inputs
-        :return: numpy.ndarray: 1D array of predictions
-        """
-        return np.argmax(self.predict_raw(X), axis=1)
-
-    def predict_raw(self, X):
-        """Make predictions given an input matrix"""
+    def prediction(self, X):
+        self.m = X.shape[0]
         for layer in self.layers:
-            X = layer.predict(X)
+            X = layer.feedforward(X)
         return X
 
-    def evaluate(self, on="testing", accuracy=True):
-        """
-        Calculates the network's prediction accuracy
-
-        :param on: cross-validation is implemented, dataset can be chosen here
-        :param accuracy: if True, the class prediction accuracy is calculated.
-        :return: cost and rate of right answers
-        """
-
-        X, y = self.data.table(on, shuff=True, m=self.data.n_testing)
-        predictions = self.predict_raw(X)
-        cost = self.cost(predictions, y) / y.shape[0]
-        if accuracy:
+    def evaluate(self, X, Y, classify=True):
+        predictions = self.prediction(X)
+        cost = self.cost(predictions, Y) / Y.shape[0]
+        if classify:
             pred_classes = np.argmax(predictions, axis=1)
-            trgt_classes = np.argmax(y, axis=1)
+            trgt_classes = np.argmax(Y, axis=1)
             eq = np.equal(pred_classes, trgt_classes)
-            acc = np.average(eq)
+            acc = np.mean(eq)
             return cost, acc
         return cost
 
     # ---- Some utilities ----
 
-    def save(self, path):
-        import pickle
-
-        fl = open(path, mode="wb")
-        print("Saving brain object to", path)
-        pickle.dump(self, fl)
-        fl.close()
-
     def shuffle(self):
         for layer in self.layers:
-            layer.shuffle()
+            if layer.trainable:
+                layer.shuffle()
 
     def describe(self, verbose=0):
         if not self.name:
-            name = "CsxNet BrainForge Artificial Neural Network."
+            name = "BrainForge Artificial Neural Network."
         else:
             name = "{}, the Artificial Neural Network.".format(self.name)
         chain = "----------\n"
         chain += name + "\n"
         chain += "Age: " + str(self.age) + "\n"
-        chain += "Architecture: " + str(self.architecture) + "\n"
+        chain += "Architecture: " + "->".join(self.architecture) + "\n"
         chain += "----------"
         if verbose:
             print(chain)
@@ -298,39 +269,21 @@ class Network(NeuralNetworkBase):
             for layer in self.layers:
                 if not layer.trainable:
                     continue
-                end = start + np.prod(layer.weights.shape)
+                end = start + layer.nparams
                 layer.set_weights(ws[start:end])
-                start += end
+                start = end
         else:
             for w, layer in zip(ws, self.layers):
                 if not layer.trainable:
                     continue
                 layer.set_weights(w)
 
-    def gradient_check(self, X=None, y=None, verbose=1):
-
-        def get_data():
-            nX, ny = self.data.table("testing", m=20, shuff=False)
-            if nX is None and ny is None:
-                nX, ny = self.data.table("learning", m=20, shuff=False)
-            if X is None and y is not None:
-                return nX
-            elif y is None and X is not None:
-                return ny
-            elif X is None and y is None:
-                return nX, ny
-
-        if X is None or y is None:
-            X, y = get_data()
-
-        if self.age == 0:
-            print("Performing gradient check on an untrained Neural Network!")
-            print("This can lead to numerical unstability. Training 1 epoch now!")
-            self._epoch(20, verbose=1)
-
+    def gradient_check(self, X, y, verbose=1, epsilon=1e-5):
         from .util import gradient_check
-
-        return gradient_check(self, X, y, verbose=verbose)
+        if self.age == 0:
+            warnings.warn("Performing gradient check on an untrained Neural Network!",
+                          RuntimeWarning)
+        return gradient_check(self, X, y, verbose=verbose, epsilon=epsilon)
 
     @property
     def output(self):
@@ -344,41 +297,70 @@ class Network(NeuralNetworkBase):
     def weights(self, ws):
         self.set_weights(ws, fold=(ws.ndim > 1))
 
-
-class FeedForwardNet(Network):
-    """
-    Layerwise representation of a Feed Forward Neural Network
-
-    Learning rate is given by the keyword argument <rate>.
-    The neural network architecture is given by <hiddens>.
-    Multiple hidden layers may be defined. Input and output neurons
-    are calculated from the shape of <data>
-    """
-
-    def __init__(self, hiddens, data, eta, lmbd1=0.0, lmbd2=0.0, mu=0.0,
-                 cost="xent", activation="tanh", output_activation="sigmoid"):
-        Network.__init__(self, data=data, eta=eta, lmbd1=lmbd1, lmbd2=lmbd2, mu=mu, cost=cost)
-
-        if isinstance(hiddens, int):
-            hiddens = (hiddens,)
-
-        self.layout = tuple([self.layers[0].outshape] + list(hiddens) + [self.outsize])
-
-        for neu in hiddens:
-            self.add_fc(neurons=neu, activation=act_fns[activation])
-        self.finalize_architecture(activation=act_fns[output_activation])
-
     @property
-    def weights(self):
-        weights = np.array([])
-        for layer in self.layers[1:]:
-            weights = np.concatenate((weights, layer.weights.ravel()))
-        return weights
+    def nparams(self):
+        return sum(layer.nparams for layer in self.layers if layer.trainable)
 
-    @weights.setter
-    def weights(self, ws):
-        start = 0
-        for layer in self.layers[1:]:
-            end = start + np.prod(layer.weights.shape)
-            layer.weights = ws[start:end].reshape(layer.weights.shape)
-            start += end
+
+class Autoencoder(Network):
+
+    def __init__(self, inshape=(), name=""):
+        Network.__init__(self, inshape, name)
+        self.encoder_end = 1
+        self.decoder = []
+
+    def add(self, layer, input_dim=()):
+        Network.add(self, layer, input_dim)
+        self.encoder_end += 1
+
+    def pop(self):
+        self.layers = self.layers[:self.encoder_end-1]
+        self.encoder_end -= 1
+        self._finalized = False
+
+    def finalize(self, cost, optimizer="sgd"):
+        from .util import cost_fns as costs
+        from .brainforge.optimizers import optimizer as opt
+        from .brainforge.layers import DenseLayer
+
+        for layer in reversed(self.layers[1:]):
+            decoder_layer = type(layer)
+            layer.connect(self, self.layers[-1].outshape)
+            self.layers.append(layer)
+            self.architecture.append(str(layer))
+        self.layers.append(DenseLayer(self.layers[0].neurons))
+        self.layers[-1].connect(self, self.layers[-2].outshape)
+        self.architecture.append(str(self.layers[-1]))
+        for layer in self.layers:
+            if layer.trainable:
+                if isinstance(optimizer, str):
+                    optimizer = opt[optimizer](layer)
+                layer.optimizer = optimizer
+        self.cost = costs[cost] if isinstance(cost, str) else cost
+        self._finalized = True
+
+    def encode(self, X):
+        for layer in self.layers[:self.encoder_end]:
+            X = layer.feedforward(X)
+        return X
+
+    def decode(self, X):
+        for layer in self.layers[self.encoder_end:]:
+            X = layer.feedforward(X)
+        return X
+
+    # noinspection PyMethodOverriding
+    def fit(self, X, batch_size=20, epochs=10, monitor=(), validation=(), verbose=1, shuffle=True):
+        Network.fit(self, X, X, batch_size, epochs, monitor, validation, verbose, shuffle)
+
+    def fit_csxdata(self, frame, batch_size=20, epochs=10, monitor=(), verbose=1, shuffle=True):
+        X, _ = frame.table("learning")
+        if frame.n_testing:
+            vX, _ = frame.table("testing")
+        else:
+            vX = None
+        Network.fit(self, X, X, batch_size, epochs, monitor, (vX, vX), verbose, shuffle)
+
+    # noinspection PyMethodOverriding
+    def gradient_check(self, X, verbose=1, epsilon=1e-5):
+        return Network.gradient_check(self, X, X, verbose, epsilon)

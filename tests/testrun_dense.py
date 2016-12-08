@@ -1,4 +1,5 @@
-from csxnet.ann import Network
+from csxnet import Network
+from csxnet.brainforge.layers import DenseLayer, DropOut, HighwayLayer, HighwayAlt
 
 from csxdata import CData, roots, log
 from csxdata.utilities.parsers import mnist_tolearningtable
@@ -13,23 +14,52 @@ def get_mnist_data(path):
 
 
 def get_dense_network(data):
-    nw = Network(data, 0.5, 0.0, 0.0, 0.0, cost="mse")
-    nw.add_fc(30, activation="sigmoid")
-    nw.finalize_architecture(activation="sigmoid")
+    fanin, fanout = data.neurons_required
+    nw = Network(fanin, name="TestDenseNet")
+    nw.add(DenseLayer(30, activation="sigmoid"))
+    nw.add(DenseLayer(fanout, activation="sigmoid"))
+    nw.finalize("mse", optimizer="sgd")
+    return nw
+
+
+def get_drop_net(data):
+    fanin, fanout = data.neurons_required
+    nw = Network(fanin, name="TestDropoutNet")
+    nw.add(DenseLayer(30, activation="sigmoid"))
+    nw.add(DropOut(0.5))
+    nw.add(DenseLayer(fanout, activation="sigmoid"))
+    nw.finalize("mse", optimizer="sgd")
+    return nw
+
+
+def get_highway_net(data):
+    fanin, fanout = data.neurons_required
+    nw = Network(fanin, name="TestHighwayNet")
+    nw.add(DenseLayer(30, activation="tanh"))
+    nw.add(HighwayAlt(activation="tanh"))
+    nw.add(HighwayAlt(activation="tanh"))
+    nw.add(DenseLayer(fanout, activation="sigmoid"))
+    nw.finalize(cost="xent", optimizer="sgd")
     return nw
 
 
 def test_ann():
 
     log(" --- CsxNet Brainforge testrun ---")
-    net = get_dense_network(get_mnist_data(mnistpath))
+    mnist = get_mnist_data(mnistpath)
+    net = get_highway_net(mnist)
     dsc = net.describe()
     log(dsc)
     print(dsc)
 
-    net.gradient_check()
+    net.fit(*mnist.table("learning", m=20), batch_size=20, epochs=1, verbose=0, shuffle=False)
+    if not net.gradient_check(*mnist.table("testing", shuff=False, m=20), verbose=1):
+        log("Gradient check failed!")
+    else:
+        log("Gradient check passed!")
 
-    net.fit(batch_size=20, epochs=30, verbose=1, monitor=["acc"])
+    net.fit_csxdata(mnist, batch_size=20, epochs=30, verbose=1, monitor=["acc"])
+    log(net.describe(0))
     log(" --- End of CsxNet testrun ---")
 
 

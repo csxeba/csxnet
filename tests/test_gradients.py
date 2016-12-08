@@ -15,7 +15,7 @@ class TestNetwork(unittest.TestCase):
         data = CData(mnist_tolearningtable(roots["misc"] + "mnist.pkl.gz", fold=False))
         data.transformation = "std"
 
-        self.X, self.y = data.table("testing")
+        self.X, self.y = data.table("testing", m=20, shuff=False)
 
         self.net = Network(data, 1.0, 0.0, 0.0, 0.0, "mse", name="NumGradTestNetwork")
         self.net.add_fc(30)
