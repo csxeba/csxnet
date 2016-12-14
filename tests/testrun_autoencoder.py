@@ -16,4 +16,4 @@ model.fit(frame.learning, batch_size=10, epochs=1, verbose=0)
 if not model.gradient_check(frame.learning):
     raise RuntimeError("Gradient check failed!")
 
-model.fit_csxdata(frame, monitor=["acc"])
+model.fit_csxdata(frame)
