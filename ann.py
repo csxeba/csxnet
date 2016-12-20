@@ -135,7 +135,7 @@ class Network:
 
     # ---- Methods for model fitting ----
 
-    def fit(self, X, Y, batch_size=20, epochs=10, monitor=(), validation=(), verbose=1, shuffle=True):
+    def fit(self, X, Y, batch_size=20, epochs=30, monitor=(), validation=(), verbose=1, shuffle=True):
 
         if not self._finalized:
             raise RuntimeError("Architecture not finalized!")
@@ -225,6 +225,9 @@ class Network:
         for layer in self.layers:
             X = layer.feedforward(X)
         return X
+
+    def predict_proba(self, X):
+        return self.prediction(X)
 
     def evaluate(self, X, Y, classify=True):
         predictions = self.prediction(X)
