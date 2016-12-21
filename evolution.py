@@ -20,17 +20,18 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 import time
 import random
 
-from csxdata.utilities.misc import avg, feature_scale
+from csxdata.utilities.misc import avg, feature_scale, chooseN
 
 
 # I hereby state that
 # this evolutionary algorithm is MINIMIZING the fitness value!
 
+
 class Population:
     """Model of a population in the ecologigal sense"""
 
     def __init__(self, limit, survivors_rate, crossing_over_rate, mutation_rate,
-                 fitness_function, max_offsprings, ranges, parallel=False):
+                 fitness_function, max_offsprings, ranges, parallel=False, jobs=0):
 
         self.fitness = fitness_function
 
@@ -42,82 +43,171 @@ class Population:
         self.ranges = ranges
         self.parallel = parallel
 
-        self.individuals = [Individual(random_genome(ranges)) for _ in
-                            range(random.randrange(int(limit / 2), limit))]
+        self.individuals = [Individual(random_genome(ranges)) for _ in range(limit)]
 
-        self.update(self.parallel)
+        self.age = 0
 
-    def update(self, parallel):
-        if parallel:
-            # This branch can make use of multiple CPU cores, to speed things up
-            # if the fitness function is computation heavy.
-            self._parallel_update()
+        if not parallel:
+            self.update(False)
         else:
-            # This branch can be used when the fitness determination is not
-            # that complicated.
-            # Below line doesn't return anything -> should consider tho
-            # self.individuals = list(map(self.fitness, self.individuals))
-            for ind in self.individuals:
-                if ind.fitness is None:
-                    self.fitness(ind, queue=None)
+            self.parallel_update(False, jobs=jobs)
 
-    def _parallel_update(self):
+    def run(self, epochs, verbose=1, parallel=False, jobs=None):
+        """Runs a given number of epochs: a selection followed by a reproduction"""
+
+        start = time.time()
+        for epoch in range(1, epochs + 1):
+
+            if verbose > 1:
+                print("-"*50)
+                print("Epoch {0:>{w}}/{1}".format(epoch, epochs, w=len(str(epochs))))
+            if verbose and epoch % 100 == 0:
+                print("-"*50)
+                print("Epoch {0:>{w}}/{1}".format(epoch, epochs, w=len(str(epochs))))
+
+            if verbose > 2:
+                print("Selection... ", end="")
+            self.selection()
+            if verbose > 2:
+                print("Done!\nReproduction... ", end="")
+            self.reproduction()
+            if verbose > 2:
+                print("Done!\nMutation... ", end="")
+            self.mutation()
+            if verbose > 2:
+                print("Done!")
+            if epoch % 5 == 0:
+                if not parallel:
+                    self.update(quick=False, verbose=verbose)
+                else:
+                    self.parallel_update(False, verbose, jobs)
+            else:
+                if not parallel:
+                    self.update(quick=True, verbose=verbose)
+                else:
+                    self.parallel_update(True, verbose, jobs)
+
+            self.age += 1
+
+            while len(self.individuals) < 4:
+                if len(self.individuals) < 2:
+                    raise RuntimeError("Population died out. Adjust selection parameters!")
+                self.reproduction()
+                if len(self.individuals) >= 4:
+                    print("Added extra reproduction steps due to low number of individuals!")
+                    self.update()
+
+            if verbose > 0 and epoch % 100 == 0:
+                describe(self, show=1)
+            if verbose > 1:
+                describe(self, show=1)
+
+        if verbose:
+            print("\n-------------------------------")
+            print("This took", round(time.time() - start, 2), "seconds!")
+
+        print()
+
+        return self
+
+    def update(self, quick=True, verbose=1):
+        N = len(self.individuals)
+        for i, ind in enumerate(self.individuals, start=1):
+            chain = "\rQuick " if quick else "\rFull "
+            if verbose:
+                print(chain + "update on fitnesses: {0:>{w}}/{1}"
+                      .format(i, N, w=len(str(N))), end="")
+            if quick and ind.fitness is None:
+                ind.fitness = self.fitness(ind.genome, queue=None)
+            elif not quick:
+                ind.fitness = self.fitness(ind.genome, queue=None)
+        print(" Done!")
+
+    def mapparallel(self, quick, verbose=1, jobs=None):
         import multiprocessing as mp
 
-        inds = [ind for ind in self.individuals if not ind.fitness]
+        print("Doing", end=" ")
+        if quick:
+            inds = [(ind if ind.fitness is None else None)
+                    for ind in self.individuals]
+            print("quick", end=" ")
+        else:
+            inds = self.individuals
+            print("full", end=" ")
+        print("parallel update!")
+
+        # This hackaround is ugly
+        try:
+            pool = mp.Pool(processes=jobs)
+            fitnesses = pool.map(self.fitness, [ind.genome for ind in inds if ind])
+        finally:
+            pool.close()
+            pool.join()
+        assert len(fitnesses) == len(inds) - inds.count(None)
+        for i, ind in enumerate(inds):
+            if ind:
+                self.individuals[i].fitness = fitnesses.pop(0)
+
+        print("Done!")
+
+    def parallel_update(self, quick=True, verbose=1, jobs=0):
+        import multiprocessing as mp
+
+        if quick:
+            inds = [ind for ind in self.individuals if ind.fitness is None]
+        else:
+            inds = self.individuals
+
         size = len(inds)
         queue = mp.Queue()
         new_inds = []
-        jobs = mp.cpu_count() + 1
+        jobs = jobs if jobs else mp.cpu_count()
         while inds:
+            if verbose:
+                print("\rParallel updating fitnesses: {0:>{w}}/{1}"
+                      .format(len(new_inds), size, w=len(str(size))),
+                      end="")
+
             procs = []
             some_new_inds = []
             workers = jobs if len(inds) >= jobs else len(inds)
 
             for _ in range(workers):
                 ind = inds.pop()
-                procs.append(mp.Process(target=self.fitness, args=(ind, queue)))
-            for proc in procs:
-                proc.start()
+                procs.append(mp.Process(target=self.fitness, args=(ind.genome, queue)))
+                procs[-1].start()
             while len(some_new_inds) != workers:
                 some_new_inds.append(queue.get())
                 time.sleep(0.1)
             for proc in procs:
                 proc.join()
 
-            new_inds.extend(some_new_inds)
+            new_inds += some_new_inds
 
-        if len(new_inds) != size:
-            print("Warning: expected {} individuals, but got {}"
-                  .format(size, len(new_inds)))
-
+        assert len(new_inds) == size, ("Expected {} individuals, but got {}"
+                                       .format(size, len(new_inds)))
+        print("\rParallel updating fitnesses: {0:>{w}}/{1}"
+              .format(len(new_inds), size, w=len(str(size))))
         self.individuals = list(new_inds)
 
     def selection(self):
-        fitnesses = feature_scale([ind.fitness for ind in self.individuals])
-        # Stochastic selection <produces noise!>
-        chances = [random.uniform(0.0, f) for f in fitnesses]
-        survives = [c < self.survivors for c in chances]
-        # Non-stochastic selection
-        # survives = [f < self.survivors for f in fitnesses]
-        survivors = [ind for srv, ind in zip(survives, self.individuals) if srv]
-        self.individuals = survivors
+        # ARAAAAAAAAAAAAAAAAAAARRARARAR
+        self.individuals = [individual for survival_chance, individual in zip((random.uniform(0.0, fitness) for fitness in feature_scale((ind.fitness for ind in self.individuals), from_=0.05, to=0.95)), self.individuals) if survival_chance < self.survivors]
+        # fscaled = feature_scale((individual.fitness for individual in self.individuals), from_=0.05, to=0.95)
+        # chances = (random.uniform(0.0, fitness) < self.survivors for fitness in fscaled)
+        # self.individuals = [individual for chance, individual in zip(chances, self.individuals) if chance]
 
     def reproduction(self):
         """This method generates new individuals by mating existing ones"""
 
-        # A reverse-ordered, feature scaled list is generated from the ind fitnesses
-        reproducers = sorted(list(self.individuals), key=lambda ind: ind.fitness, reverse=True)
+        # A reverse-ordered list is generated from the ind fitnesses
+        fscaled = feature_scale((ind.fitness for ind in self.individuals))
+        reproducers = sorted(self.individuals, key=lambda ind: ind.fitness, reverse=True)
 
         # In every round, two individuals with the highest fitnesses reproduce
         while (len(reproducers) > 1) and (len(self.individuals) + self.max_offsprings <= self.limit):
             # Stochastic reproduction
-            # ind_a, ind_b = chooseN(reproducers, N=2)
-            # Non-stochastic reproduction
-            ind_a = reproducers.pop()
-            ind_b = reproducers.pop()
-            offspr = mate(ind_a, ind_b,  self.crossing_over_rate, self.max_offsprings)
-            self.individuals = offspr + self.individuals
+            self.mate(*chooseN(reproducers, n=2))
 
     def mutation(self):
         """Generate mutations in the given population. Rate is given by <pop.mutation_rate>"""
@@ -137,7 +227,7 @@ class Population:
                 m_loc = i % loci
 
                 # OK, like, WTF???
-                newgenome = list(self.individuals[no_ind].genome)  # the genome gets copied
+                newgenome = self.individuals[no_ind].genome[:]  # the genome gets copied
                 newgenome[m_loc] = random_locus(self, m_loc)
                 self.individuals[no_ind].genome = newgenome
                 # Above snippet is a workaround, because the following won't work:
@@ -148,53 +238,24 @@ class Population:
                 self.individuals[no_ind].mutant += 1
                 mutations += 1
 
-    def run(self, epochs, verbose, log=False, parallel=None):
-        """Runs a given number of epochs: a selection followed by a reproduction"""
-        
-        if parallel is None:
-            parallel = self.parallel
-
-        start = time.time()
-        grades = []
-        epoch = 0
-        for epoch in range(1, epochs + 1):
-
-            self.selection()
-            self.reproduction()
-            self.mutation()
-            self.update(parallel)
-
-            while len(self.individuals) < 4:
-                if len(self.individuals) < 2:
-                    raise RuntimeError("Population died out. Adjust selection parameters!")
-                self.reproduction()
-                if len(self.individuals) >= 4:
-                    print("Added extra reproduction steps due to low number of individuals!")
-                    self.update(parallel)
-
-            if verbose > 0 and epoch % 100 == 0:
-                print("Evolutionary epoch:", epoch)
-                describe(self, show=1)
-            if verbose > 1:
-                print("Evolutionary epoch:", epoch)
-                describe(self, show=1)
-
-        if verbose:
-            print("\n-------------------------------")
-            print("Run finished. Epochs:", epoch)
-            print("This took", round(time.time() - start, 2), "seconds!")
-
-        print("\n")
-
-        # return the logs
-        if log:
-            return grades
-
-        return self
+    def mate(self, ind1, ind2):
+        """Mate this individual with another"""
+        no_offsprings = random.randint(1, self.max_offsprings + 1)
+        for _ in range(no_offsprings):
+            if random.random() < self.crossing_over_rate:
+                newgenomes = crossing_over(ind1.genome, ind2.genome)
+                newgenome = random.choice(newgenomes)
+            else:
+                newgenome = random.choice((ind1.genome, ind2.genome))
+            self.individuals.append(Individual(newgenome))
 
     def grade(self):
         """Calculates an average fitness value for the whole population"""
         return avg([ind.fitness for ind in self.individuals])
+
+    @property
+    def best(self):
+        return sorted(self.individuals, key=lambda ind: ind.fitness)[-1]
 
 
 class Individual:
@@ -202,23 +263,6 @@ class Individual:
         self.genome = genome
         self.fitness = None
         self.mutant = 0
-
-
-def mate(ind1, ind2, co_chance, max_offsprings):
-    """Mate this individual with another"""
-    no_offsprings = random.randint(1, max_offsprings + 1)
-    offsprings = []
-    for _ in range(no_offsprings):
-        if random.random() < co_chance:
-            newgenomes = crossing_over(ind1.genome, ind2.genome)
-            newgenome = random.choice(newgenomes)
-        else:
-            newgenome = random.choice((ind1.genome, ind2.genome))
-        offsprings.append(Individual(newgenome))
-
-    assert any([o.fitness is None for o in offsprings]), "FUUUUUUUUU"
-
-    return offsprings
 
 
 def crossing_over(chromosome1, chromosome2):
@@ -236,17 +280,17 @@ def crossing_over(chromosome1, chromosome2):
 
 
 def random_genome(ranges):
-    return [{float: random.uniform, int: random.randrange}[type(t[0])](*t) for t in ranges]  # because python
-    # genome = []
-    # for t in ranges:
-    #     func = {float: random.uniform, int:random.randrange}[type(t[0])]
-    #     genome.append(func(*t))
-    # return genome
+    return [{float: random.uniform, int: random.randrange, str: wrapchoice}
+            [type(t[0])](*t) for t in ranges]
+
+
+def wrapchoice(*args):
+        return random.choice(args)
 
 
 def random_locus(pop, locus):
     ranges = pop.ranges[locus]
-    return {float: random.uniform, int: random.randrange}[type(ranges[0])](*ranges)
+    return {float: random.uniform, int: random.randrange, str: wrapchoice}[type(ranges[0])](*ranges)
 
 
 def mutants(pop):
@@ -254,24 +298,10 @@ def mutants(pop):
     return sum(holder) / len(holder)
 
 
-def gene_loss(pop):
-    """Equals the number of different genes divided by
-    the initial number of individual genes"""
-    lost = round((len(gene_pool(pop)) / len(pop.init_gene_pool)) * 100, 2)
-    lost = 100 - lost  # Possibly not?
-    return lost
-
-
-def gene_pool(pop):
-    holder = [tuple(x.chromosomeA) for x in pop.individuals] + \
-             [tuple(x.chromosomeB) for x in pop.individuals]
-    return set(holder)
-
-
 def describe(pop, show=0):
     """Print out useful information about a population"""
-    showme = sorted(pop.individuals, key=lambda i: i.fitness)[:show]
-    for ind in showme:
-        print("Ind:", str(ind.genome), str(ind.fitness))
-    print("Size:\t", len(pop.individuals), sep="\t")
-    print("Avg fitness:", pop.grade(), sep="\t")
+    showme = sorted(pop.individuals, key=lambda indiv: indiv.fitness)[:show]
+    for i, ind in enumerate(showme, start=1):
+        print("TOP {}: {} F={}".format(i, ind.genome, ind.fitness))
+    print("Size :", len(pop.individuals), sep="\t")
+    print("Avg F:", pop.grade(), sep="\t")

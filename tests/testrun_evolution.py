@@ -6,9 +6,11 @@ from csxnet.evolution import Population, describe
 def fn(ind, queue=None):
     from csxdata.utilities.misc import euclidean
 
-    del queue
     target = [50] * len(ind.genome)
     ind.fitness = euclidean(ind.genome, target)
+
+    if queue is not None:
+        queue.put(ind)
 
 
 def test_evolution():
