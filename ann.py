@@ -307,14 +307,24 @@ class Network:
 
 class Autoencoder(Network):
 
-    def __init__(self, inshape=(), name=""):
+    def __init__(self, inshape=(), decoder_type="learnable", name=""):
         Network.__init__(self, inshape, name)
+        if decoder_type not in ("learnable", "fixed", "built", "single", None):
+            raise ValueError('decoder_type should be one of:\n"learnable", "mirrored", "built", "single", None')
+        self.decoder_type = decoder_type
         self.encoder_end = 1
         self.decoder = []
 
     def add(self, layer, input_dim=()):
+        from .brainforge.layers import DenseLayer, HighwayLayer, RLayer, LSTM
+        if type(layer) not in (DenseLayer, HighwayLayer, RLayer, LSTM):
+            raise NotImplementedError(str(layer), "not yet implemented in autoencoder!")
         Network.add(self, layer, input_dim)
         self.encoder_end += 1
+
+        if self.decoder_type == "learnable":
+            caps = layer.capsule
+            self.decoder = type(layer).from_capsule(caps)
 
     def pop(self):
         self.layers = self.layers[:self.encoder_end-1]
