@@ -4,7 +4,7 @@ Copyright (C) 2016  Csaba Gór
 
 This program is free software; you can redistribute it and/or
 modify it under the terms of the GNU General Public License
-as published by the Free Software Foundation; either version 2
+as published by the Free Software Foundation; either version 3
 of the License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
@@ -66,7 +66,6 @@ class Population:
         print("\rUpdating {0}/{1}".format(lim, lim))
 
     def run(self, epochs):
-        """This method generates new individuals by mating existing ones"""
         for epoch in range(1, epochs+1):
             print("-"*50)
             print("Epoch {0:>{w}}/{1}".format(epoch, epochs, w=len(str(epochs))))
