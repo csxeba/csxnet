@@ -6,7 +6,7 @@ from numpy.linalg import norm
 
 from csxnet.ann import Network
 from csxnet.util import numerical_gradients, analytical_gradients, cost_fns as costs
-from utilities.parsers import mnist_tolearningtable
+from csxdata.utilities.parsers import mnist_tolearningtable
 
 
 class TestNetwork(unittest.TestCase):
@@ -21,7 +21,7 @@ class TestNetwork(unittest.TestCase):
         self.net.add_fc(30)
 
     def test_mse_with_sigmoid_output(self):
-        self.net.finalize_architecture("sigmoid")
+        self.net.finalize("sigmoid")
         self.net.cost = costs.mse
         self.run_numerical_gradient_test()
 

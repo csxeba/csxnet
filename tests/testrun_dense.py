@@ -1,5 +1,5 @@
 from csxnet import Network
-from csxnet.brainforge.layers import DenseLayer, DropOut, HighwayLayer, HighwayAlt
+from csxnet.brainforge.layers import DenseLayer, DropOut, HighwayLayer
 
 from csxdata import CData, roots, log
 from csxdata.utilities.parsers import mnist_tolearningtable
@@ -47,7 +47,7 @@ def test_ann():
 
     log(" --- CsxNet Brainforge testrun ---")
     mnist = get_mnist_data(mnistpath)
-    net = get_highway_net(mnist)
+    net = get_dense_network(mnist)
     dsc = net.describe()
     log(dsc)
     print(dsc)
